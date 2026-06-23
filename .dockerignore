@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+backend/__pycache__/
+backend/*.pyc
+backend/.pytest_cache/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Build outputs
+dist/
+build/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Development files
+.bolt/
+chroma_db/
