@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Sparkles, X } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, X, Activity, Server, Box, AlertTriangle, Layers } from 'lucide-react';
 import { apiClient } from '../lib/api-client';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  actionPerformed?: string;
+  actionSuccess?: boolean;
 }
 
 interface AIChatProps {
@@ -13,11 +15,61 @@ interface AIChatProps {
   onClose: () => void;
 }
 
+// Render assistant message with basic markdown-like formatting
+function MessageContent({ content }: { content: string }) {
+  const lines = content.split('\n');
+  return (
+    <div className="text-sm leading-relaxed space-y-1">
+      {lines.map((line, i) => {
+        // Code block (inline `code`)
+        const parts = line.split(/(`[^`]+`)/g);
+        const rendered = parts.map((part, j) =>
+          part.startsWith('`') && part.endsWith('`')
+            ? <code key={j} className="bg-gray-200 dark:bg-gray-600 px-1 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>
+            : <span key={j}>{part}</span>
+        );
+        // Bold **text**
+        const boldLine = rendered.map((el, j) => {
+          if (typeof el === 'string') {
+            return el.replace(/\*\*(.+?)\*\*/g, '$1');
+          }
+          return el;
+        });
+        // Section headers (lines starting with ##/###)
+        if (/^#{1,3}\s/.test(line)) {
+          return <p key={i} className="font-semibold text-blue-600 dark:text-blue-400 mt-2">{line.replace(/^#{1,3}\s/, '')}</p>;
+        }
+        // Bullet points
+        if (/^[-•*]\s/.test(line)) {
+          return <p key={i} className="pl-3">• {line.replace(/^[-•*]\s/, '')}</p>;
+        }
+        // Numbered list
+        if (/^\d+\.\s/.test(line)) {
+          return <p key={i} className="pl-3">{line}</p>;
+        }
+        if (line.trim() === '') return <br key={i} />;
+        return <p key={i}>{rendered}</p>;
+      })}
+    </div>
+  );
+}
+
+const SUGGESTION_GROUPS = [
+  { icon: Activity,      label: 'Cluster health',           query: 'Analyze cluster health and show all issues' },
+  { icon: Box,           label: 'Unhealthy pods',            query: 'Show all unhealthy, failed and pending pods' },
+  { icon: Server,        label: 'Node status',               query: 'Show all nodes and their status' },
+  { icon: Layers,        label: 'Deployments',               query: 'Show all deployments and their replica status' },
+  { icon: AlertTriangle, label: 'Warning events',            query: 'Show recent warning and error events' },
+  { icon: Box,           label: 'Create nginx pod',          query: 'Create nginx pod in tharunreddy-dev' },
+  { icon: Layers,        label: 'Namespaces',                query: 'List all namespaces and projects' },
+  { icon: AlertTriangle, label: 'Failed deployments',        query: 'Show failed or degraded deployments' },
+];
+
 export default function AIChat({ isOpen, onClose }: AIChatProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Hello! I\'m your OpenShift AI assistant. I can help you with:\n\n• Analyzing cluster health\n• Troubleshooting pod issues\n• Explaining events and logs\n• Finding solutions in runbooks\n• Answering DevOps questions\n\n⚡ Note: The first response may take 20-30 seconds as the AI model loads into memory. Subsequent responses will be faster!\n\nWhat would you like to know?',
+      content: 'Hello! I\'m your OpenShift AI assistant powered by IBM watsonx.ai.\n\nI am connected to your live cluster and can:\n\n• Show pods, nodes, deployments, events and namespaces\n• Diagnose CrashLoopBackOff, OOMKilled, Pending pods\n• Analyze cluster health with AI insights\n• Explain warning events and suggest fixes\n• Answer any OpenShift / Kubernetes question\n\nPick a quick action below or type your question.',
       timestamp: new Date()
     }
   ]);
@@ -25,14 +77,6 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const suggestions = [
-    'Show unhealthy pods',
-    'Analyze cluster health',
-    'Why is my pod restarting?',
-    'Troubleshoot Portworx migration',
-    'Why is Grafana not starting?',
-  ];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -44,80 +88,36 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
     }
   }, [isOpen]);
 
-  const formatClusterHealthResponse = (healthData: any, aiAnalysis: string) => {
-    const pods = healthData.pods || {};
-    const nodes = healthData.nodes || {};
-    const warnings = healthData.recent_warnings || [];
-
-    const warningText = warnings.length
-      ? warnings.map((event: any, index: number) => {
-          const obj = event?.involvedObject || {};
-          return `${index + 1}. ${event.type || 'Unknown'}: ${event.reason || 'Unknown'} in ${obj.kind || 'Unknown'}/${obj.name || 'Unknown'} (${obj.namespace || 'Unknown'}) - ${event.message || 'No message'}`;
-        }).join('\n')
-      : 'No recent warnings or errors.';
-
-    return `Cluster Health Summary:\n` +
-      `- Total Pods: ${pods.total ?? 'N/A'}\n` +
-      `- Running Pods: ${pods.running ?? 'N/A'}\n` +
-      `- Failed Pods: ${pods.failed ?? 'N/A'}\n` +
-      `- Pending Pods: ${pods.pending ?? 'N/A'}\n` +
-      `- Total Nodes: ${nodes.total ?? 'N/A'}\n` +
-      `- Ready Nodes: ${nodes.ready ?? 'N/A'}\n\n` +
-      `Recent warnings/errors:\n${warningText}\n\n` +
-      `AI Analysis:\n${aiAnalysis}`;
-  };
-
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
 
-    const userMessage: Message = {
-      role: 'user',
-      content: messageText,
-      timestamp: new Date()
-    };
-
+    const userMessage: Message = { role: 'user', content: messageText, timestamp: new Date() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
 
     try {
-      const isClusterHealthRequest = /cluster health|analyze cluster health/i.test(messageText);
-
-      if (isClusterHealthRequest) {
-        const data = await apiClient.getClusterHealth();
-        const assistantMessage: Message = {
-          role: 'assistant',
-          content: formatClusterHealthResponse(data.health_data, data.ai_analysis),
-          timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, assistantMessage]);
-        return;
-      }
-
-      const conversationHistory = messages.slice(-6).map(m => ({
+      const conversationHistory = messages.slice(-8).map(m => ({
         role: m.role,
-        content: m.content
+        content: m.content,
       }));
 
       const data = await apiClient.chat(messageText, conversationHistory, true);
-      
-      const assistantMessage: Message = {
+      setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.response,
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
+        timestamp: new Date(),
+        actionPerformed: data.action_performed ?? undefined,
+        actionSuccess: data.action_success ?? undefined,
+      }]);
     } catch (error) {
-      const errorMessage: Message = {
+      setMessages(prev => [...prev, {
         role: 'assistant',
         content: error instanceof Error
-          ? `Error: ${error.message}. Please ensure the backend server is accessible.`
+          ? `Error: ${error.message}. Please ensure the backend server is running on http://localhost:8001`
           : 'Sorry, I encountered an error. Please ensure the backend server is accessible.',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+        timestamp: new Date(),
+      }]);
     } finally {
       setIsLoading(false);
     }
@@ -148,7 +148,7 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
                 OpenShift AI Assistant
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Powered by Llama 3.2
+                Powered by IBM watsonx.ai
               </p>
             </div>
           </div>
@@ -165,9 +165,7 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
           {messages.map((message, index) => (
             <div
               key={index}
-              className={`flex gap-3 ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
+              className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {message.role === 'assistant' && (
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -175,16 +173,27 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
                 </div>
               )}
               <div
-                className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+                className={`max-w-[75%] rounded-2xl px-4 py-3 ${
                   message.role === 'user'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-blue-600 text-white text-sm'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
                 }`}
               >
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                  {message.content}
-                </p>
-                <p className="text-xs mt-2 opacity-70">
+                {message.actionPerformed && (
+                  <div className={`flex items-center gap-2 text-xs font-medium px-2 py-1 rounded-lg mb-2 ${
+                    message.actionSuccess
+                      ? 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-400'
+                      : 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400'
+                  }`}>
+                    <span>{message.actionSuccess ? '✅' : '❌'}</span>
+                    <span>{message.actionPerformed}</span>
+                  </div>
+                )}
+                {message.role === 'assistant'
+                  ? <MessageContent content={message.content} />
+                  : <p className="text-sm leading-relaxed">{message.content}</p>
+                }
+                <p className="text-xs mt-2 opacity-60">
                   {message.timestamp.toLocaleTimeString()}
                 </p>
               </div>
@@ -202,10 +211,8 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
               </div>
               <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl px-4 py-3">
                 <div className="flex items-center gap-2">
-                  <Loader2 className="w-5 h-5 animate-spin text-gray-600 dark:text-gray-300" />
-                  <span className="text-sm text-gray-600 dark:text-gray-300">
-                    {messages.length <= 2 ? 'Loading AI model (this may take 20-30s)...' : 'Thinking...'}
-                  </span>
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+                  <span className="text-sm text-gray-600 dark:text-gray-300">Fetching live cluster data...</span>
                 </div>
               </div>
             </div>
@@ -213,20 +220,21 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Suggestions */}
+        {/* Quick-action suggestion chips */}
         {messages.length === 1 && (
           <div className="px-6 pb-4">
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-              Try asking:
+            <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">
+              Quick actions
             </p>
-            <div className="flex flex-wrap gap-2">
-              {suggestions.map((suggestion, index) => (
+            <div className="grid grid-cols-2 gap-2">
+              {SUGGESTION_GROUPS.map((s, i) => (
                 <button
-                  key={index}
-                  onClick={() => handleSuggestionClick(suggestion)}
-                  className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors"
+                  key={i}
+                  onClick={() => handleSuggestionClick(s.query)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm bg-gray-50 dark:bg-gray-700/60 hover:bg-blue-50 dark:hover:bg-blue-900/30 text-gray-700 dark:text-gray-300 hover:text-blue-700 dark:hover:text-blue-300 border border-gray-200 dark:border-gray-600 rounded-xl transition-colors text-left"
                 >
-                  {suggestion}
+                  <s.icon className="w-4 h-4 flex-shrink-0 text-blue-500" />
+                  <span>{s.label}</span>
                 </button>
               ))}
             </div>

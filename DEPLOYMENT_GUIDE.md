@@ -1,65 +1,55 @@
 # Deployment Guide
 
-This guide explains how to deploy the OpenShift AI Assistant in production environments without localhost dependencies or network issues.
+Guide for deploying the OpenShift AI Assistant in production environments.
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Prerequisites](#prerequisites)
-3. [Configuration](#configuration)
-4. [Deployment Options](#deployment-options)
-5. [Environment Variables](#environment-variables)
-6. [Troubleshooting](#troubleshooting)
+1. [Local Production Setup](#local-production-setup)
+2. [Configuration](#configuration)
+3. [Process Management](#process-management)
+4. [Environment Variables](#environment-variables)
+5. [Troubleshooting](#troubleshooting)
 
-## Overview
+## Local Production Setup
 
-The application has been configured for production deployment with:
+For deploying on a local machine or server.
 
-- ✅ **Environment-aware configuration** - Automatically adapts to development/production
-- ✅ **Connection retry logic** - Handles network failures gracefully
-- ✅ **Configurable timeouts** - Prevents hanging requests
-- ✅ **CORS configuration** - Supports multiple frontend domains
-- ✅ **Health checks** - Monitors service availability
-- ✅ **Docker support** - Easy containerized deployment
+### 1. Install Dependencies
 
-## Prerequisites
-
-### Required
-- Docker and Docker Compose (for containerized deployment)
-- OpenShift cluster access with valid token
-- Network access to OpenShift API
-
-### Optional
-- Ollama instance (local or remote) for AI features
-- Kubernetes/OpenShift cluster for orchestrated deployment
-
-## Configuration
-
-### 1. Backend Configuration
-
-Copy the example environment file and configure:
-
+**Backend:**
 ```bash
 cd project/backend
-cp .env.example .env
+pip install -r requirements.txt
 ```
 
-Edit `backend/.env`:
+**Frontend:**
+```bash
+cd project
+npm install
+npm run build
+```
 
+### 2. Configure Environment
+
+**Backend Production Config:**
+
+Edit `backend/.env`:
 ```env
 # OpenShift Configuration
 OPENSHIFT_API_URL=https://your-openshift-api.com:6443
 OPENSHIFT_TOKEN=your_token_here
 
-# Ollama Configuration (use deployed instance URL)
-OLLAMA_BASE_URL=http://ollama-service:11434
-OLLAMA_MODEL=llama3.1:8b
+# Google AI Configuration
+GOOGLE_API_KEY=your_google_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
 
-# CORS Origins (comma-separated, include your frontend domain)
-CORS_ORIGINS=https://your-frontend.com,https://www.your-frontend.com
-
-# Environment
+# Production Settings
 ENVIRONMENT=production
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# CORS Origins (your frontend domain)
+CORS_ORIGINS=https://your-domain.com,https://www.your-domain.com
 
 # Connection settings
 MAX_RETRIES=3
@@ -67,87 +57,247 @@ RETRY_DELAY=2
 REQUEST_TIMEOUT=30
 ```
 
-### 2. Frontend Configuration
+### 3. Start Services
 
-Copy the example environment file:
+#### Option A: Using Process Manager (systemd - Linux)
 
-```bash
-cd project
-cp .env.example .env
+**Create systemd service for backend:**
+
+`/etc/systemd/system/openshift-assistant-backend.service`:
+```ini
+[Unit]
+Description=OpenShift AI Assistant Backend
+After=network.target
+
+[Service]
+Type=simple
+User=appuser
+WorkingDirectory=/path/to/project/backend
+ExecStart=/usr/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Edit `.env`:
+Enable and start:
+```bash
+sudo systemctl enable openshift-assistant-backend
+sudo systemctl start openshift-assistant-backend
+```
+
+#### Option B: Manual Process (Development/Testing)
+
+**Terminal 1 - Backend:**
+```bash
+# (Google AI is cloud-based, no local service needed)
+```
+
+**Terminal 2 - Backend:**
+```bash
+cd project/backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+**Terminal 3 - Frontend (if using dev server):**
+```bash
+cd project
+npm run dev
+```
+
+Or serve built frontend with a web server (see below).
+
+### 4. Serve Frontend (Production)
+
+**Option A: Using Python's http.server:**
+```bash
+cd project/dist
+python -m http.server 80
+```
+
+**Option B: Using nginx:**
+
+`/etc/nginx/sites-available/openshift-assistant`:
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    # Redirect HTTP to HTTPS in production
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    root /path/to/project/dist;
+    index index.html;
+
+    # Frontend static files
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Backend API proxy
+    location /api/ {
+        proxy_pass http://localhost:8000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable and restart:
+```bash
+sudo ln -s /etc/nginx/sites-available/openshift-assistant /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+**Option C: Using Apache:**
+
+`.htaccess` in `dist/`:
+```apache
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    RewriteRule ^index\.html$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.html [L]
+</IfModule>
+```
+
+## Configuration
+
+### Environment Variables
+
+All variables are loaded from `backend/.env`.
+
+#### Required Variables
+- `OPENSHIFT_API_URL` - OpenShift cluster API endpoint
+- `OPENSHIFT_TOKEN` - Valid OpenShift authentication token
+
+#### Google AI Configuration
+- `GOOGLE_API_KEY` - Google AI API key (free at https://aistudio.google.com/app/apikey)
+- `GEMINI_MODEL` - Gemini model name (default: `gemini-1.5-flash`)
+
+#### API Configuration
+- `API_HOST` - Listen address (default: `0.0.0.0`)
+- `API_PORT` - Listen port (default: `8000`)
+
+#### CORS Configuration
+- `CORS_ORIGINS` - Comma-separated list of allowed frontend origins
+  - Development: `http://localhost:5173,http://localhost:3000`
+  - Production: `https://your-domain.com,https://www.your-domain.com`
+
+#### Connection Settings
+- `MAX_RETRIES` - Number of retries for failed requests (default: `3`)
+- `RETRY_DELAY` - Delay between retries in seconds (default: `2`)
+- `REQUEST_TIMEOUT` - Request timeout in seconds (default: `30`)
+
+#### Environment
+- `ENVIRONMENT` - `development` or `production` (default: `development`)
+
+### Example Production .env
 
 ```env
-# OpenShift Configuration
-VITE_OPENSHIFT_API_URL=https://your-openshift-api.com:6443
-VITE_OPENSHIFT_TOKEN=your_token_here
+# OpenShift
+OPENSHIFT_API_URL=https://api.example.com:6443
+OPENSHIFT_TOKEN=sha256~abcdef123456
 
-# Backend API URL
-# For production with same domain: /api
-# For separate backend domain: https://api.your-domain.com
-VITE_BACKEND_API_URL=/api
+# Google AI
+GOOGLE_API_KEY=your_google_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
 
-# Environment
-VITE_ENV=production
+# API
+API_HOST=0.0.0.0
+API_PORT=8000
+ENVIRONMENT=production
+
+# CORS
+CORS_ORIGINS=https://openshift-assistant.example.com,https://www.openshift-assistant.example.com
+
+# Connection
+MAX_RETRIES=3
+RETRY_DELAY=2
+REQUEST_TIMEOUT=30
 ```
 
-## Deployment Options
+## Process Management
 
-### Option 1: Docker Compose (Recommended for Quick Start)
-
-This deploys frontend, backend, and Ollama together:
+### Starting/Stopping Manually
 
 ```bash
-# 1. Set environment variables
-export OPENSHIFT_TOKEN="your_token_here"
-export OPENSHIFT_API_URL="https://your-openshift-api.com:6443"
+# Start all three services in separate terminals
+# (Google AI is cloud-based, no local service needed)
+cd project/backend && python -m uvicorn main:app --host 0.0.0.0 --port 8000
+cd project && npm run preview  # or serve via web server
 
-# 2. Start all services
-docker-compose up -d
-
-# 3. Check status
-docker-compose ps
-
-# 4. View logs
-docker-compose logs -f
-
-# 5. Access application
-# Frontend: http://localhost
-# Backend API: http://localhost:8000
-# Ollama: http://localhost:11434
+# Stop by pressing Ctrl+C in each terminal
 ```
 
-### Option 2: Separate Container Deployment
+### Using supervisor (Linux/macOS)
 
-#### Backend Only
-
+Install supervisor:
 ```bash
-# Build backend image
-docker build -f Dockerfile.backend -t openshift-assistant-backend .
-
-# Run backend container
-docker run -d \
-  --name backend \
-  -p 8000:8000 \
-  -e OPENSHIFT_API_URL="https://your-api.com:6443" \
-  -e OPENSHIFT_TOKEN="your_token" \
-  -e OLLAMA_BASE_URL="http://ollama-host:11434" \
-  -e ENVIRONMENT="production" \
-  -e CORS_ORIGINS="https://your-frontend.com" \
-  openshift-assistant-backend
+pip install supervisor
 ```
 
-#### Frontend Only
+Create `/etc/supervisor/conf.d/openshift-assistant.conf`:
+```ini
+[program:openshift-assistant-backend]
+command=python -m uvicorn main:app --host 0.0.0.0 --port 8000
+directory=/path/to/project/backend
+user=appuser
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/openshift-assistant/backend.err.log
+stdout_logfile=/var/log/openshift-assistant/backend.out.log
+```
 
+Then:
 ```bash
-# Build frontend image
-cd project
-docker build -f Dockerfile.frontend -t openshift-assistant-frontend .
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start openshift-assistant-backend
+```
 
-# Run frontend container
-docker run -d \
-  --name frontend \
+## Troubleshooting
+
+### Backend Won't Start
+
+1. Check Python version: `python --version` (must be 3.9+)
+2. Check dependencies: `pip list | grep fastapi`
+3. Check port availability: `lsof -i :8000` (Linux/macOS)
+4. Check logs in terminal output
+
+### Google AI Connection Error
+
+1. Verify `GOOGLE_API_KEY` is set in `backend/.env`
+2. Test API key at https://aistudio.google.com/app/apikey
+3. Check health: `curl http://localhost:8000/health`
+
+### CORS Errors
+
+1. Verify `CORS_ORIGINS` includes your frontend domain
+2. Match protocol (http vs https)
+3. Restart backend after changing CORS settings
+
+### High Memory Usage
+
+1. Monitor with: `free -h` or Task Manager
+2. Check model size: models require 2-8 GB RAM
+3. Google AI is cloud-based - no local memory concerns
+
+See [LOCAL_SETUP.md](LOCAL_SETUP.md) for more details on local setup and [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
   -p 80:80 \
   -e VITE_BACKEND_API_URL="/api" \
   openshift-assistant-frontend
@@ -266,8 +416,8 @@ npm run build
 |----------|----------|---------|-------------|
 | `OPENSHIFT_API_URL` | Yes | - | OpenShift API endpoint |
 | `OPENSHIFT_TOKEN` | Yes | - | OpenShift authentication token |
-| `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Ollama service URL |
-| `OLLAMA_MODEL` | No | `llama3.1:8b` | Ollama model name |
+| `GOOGLE_API_KEY` | Yes | - | Google AI (Gemini) API key |
+| `GEMINI_MODEL` | No | `gemini-1.5-flash` | Gemini model name |
 | `CORS_ORIGINS` | No | `http://localhost:5173,http://localhost:3000` | Allowed CORS origins |
 | `ENVIRONMENT` | No | `development` | Environment (development/production) |
 | `MAX_RETRIES` | No | `3` | Maximum connection retry attempts |
@@ -312,18 +462,18 @@ npm run build
 **Solutions**:
 1. Increase `REQUEST_TIMEOUT` in backend `.env`
 2. Check network latency to OpenShift API
-3. Verify Ollama service is responsive
+3. Verify Google AI is accessible (check /health endpoint)
 4. Review retry settings (`MAX_RETRIES`, `RETRY_DELAY`)
 
-### Ollama Issues
+### Google AI Issues
 
-**Problem**: "Error communicating with Ollama"
+**Problem**: "Error communicating with Google AI"
 
 **Solutions**:
-1. Verify Ollama is running: `curl http://ollama-url:11434/api/tags`
-2. Check `OLLAMA_BASE_URL` is correct
-3. Ensure model is pulled: `ollama pull llama3.1:8b`
-4. Check Ollama logs for errors
+1. Verify `GOOGLE_API_KEY` is set in `backend/.env`
+2. Check key is valid at https://aistudio.google.com/app/apikey
+3. Check health: `curl http://localhost:8000/health`
+
 
 ### CORS Issues
 

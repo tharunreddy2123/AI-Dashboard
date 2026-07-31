@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
-import { getNamespaces, getPods, type OCNamespace, type OCPod } from '../lib/openshift-direct';
-import { Search, ChevronDown, ChevronRight, Boxes, Container, Server, Activity, RefreshCw } from 'lucide-react';
+import { getNamespaces, getPods, getPodAge, getPodHealthStatus, type OCNamespace, type OCPod } from '../lib/openshift-direct';
+import { Search, ChevronDown, ChevronRight, Boxes, Container, Server, Activity, RefreshCw, Circle } from 'lucide-react';
 
 export default function Namespaces() {
   const { isDark } = useTheme();
@@ -173,25 +173,109 @@ export default function Namespaces() {
                 </div>
               </button>
 
+              <AnimatePresence initial={false}>
               {expanded === name && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
-                  className={`px-5 pb-5 border-t ${isDark ? 'border-white/[0.06]' : 'border-gray-100'}`}
+                <motion.div
+                  key="expand"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className={`border-t overflow-hidden ${isDark ? 'border-white/[0.06]' : 'border-gray-100'}`}
                 >
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                  {/* Stat summary row */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-5 pt-4">
                     {[
                       { label: 'Total Pods', value: podCount },
-                      { label: 'Running', value: runningCount },
-                      { label: 'Failed', value: failedCount },
-                      { label: 'Restarts', value: restartCount },
+                      { label: 'Running',    value: runningCount,  color: 'text-emerald-400' },
+                      { label: 'Failed',     value: failedCount,   color: failedCount > 0 ? 'text-red-400' : undefined },
+                      { label: 'Restarts',   value: restartCount,  color: restartCount > 5 ? 'text-yellow-400' : undefined },
                     ].map((stat, j) => (
                       <div key={j} className={`p-3 rounded-lg ${isDark ? 'bg-white/[0.03]' : 'bg-gray-50'}`}>
                         <p className={`text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{stat.label}</p>
-                        <p className={`text-lg font-bold mt-0.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>{stat.value}</p>
+                        <p className={`text-lg font-bold mt-0.5 ${stat.color ?? (isDark ? 'text-white' : 'text-gray-900')}`}>{stat.value}</p>
                       </div>
                     ))}
                   </div>
+
+                  {/* Pod list */}
+                  {(() => {
+                    const nsPods = pods.filter(p => p.metadata.namespace === name);
+                    if (nsPods.length === 0) return (
+                      <p className={`px-5 py-4 text-sm ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>No pods in this namespace.</p>
+                    );
+                    return (
+                      <div className="px-5 pb-5 mt-4">
+                        <p className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                          Pods ({nsPods.length})
+                        </p>
+                        <div className={`rounded-xl overflow-hidden border ${isDark ? 'border-white/[0.06]' : 'border-gray-200'}`}>
+                          {/* Table header */}
+                          <div className={`grid grid-cols-[1fr_100px_120px_80px_80px_80px] text-xs font-medium px-4 py-2 ${isDark ? 'bg-white/[0.04] text-gray-500' : 'bg-gray-50 text-gray-400'}`}>
+                            <span>Pod Name</span>
+                            <span>Status</span>
+                            <span>Node</span>
+                            <span className="text-center">Restarts</span>
+                            <span className="text-center">Ready</span>
+                            <span className="text-center">Age</span>
+                          </div>
+                          {/* Pod rows */}
+                          {nsPods.map((pod, pi) => {
+                            const health = getPodHealthStatus(pod);
+                            const restarts = pod.status.containerStatuses?.reduce((s, cs) => s + cs.restartCount, 0) ?? 0;
+                            const readyCount = pod.status.containerStatuses?.filter(cs => cs.ready).length ?? 0;
+                            const totalContainers = pod.status.containerStatuses?.length ?? pod.spec.containers.length;
+                            const age = getPodAge(pod.metadata.creationTimestamp);
+                            const phaseColor =
+                              pod.status.phase === 'Running'   ? 'text-emerald-400' :
+                              pod.status.phase === 'Pending'   ? 'text-yellow-400'  :
+                              pod.status.phase === 'Succeeded' ? 'text-blue-400'    : 'text-red-400';
+                            const dotColor =
+                              health === 'healthy'  ? 'text-emerald-400' :
+                              health === 'warning'  ? 'text-yellow-400'  : 'text-red-400';
+                            return (
+                              <div
+                                key={pod.metadata.uid}
+                                className={`grid grid-cols-[1fr_100px_120px_80px_80px_80px] items-center px-4 py-2.5 text-sm
+                                  ${pi % 2 === 0
+                                    ? (isDark ? 'bg-transparent' : 'bg-white')
+                                    : (isDark ? 'bg-white/[0.02]' : 'bg-gray-50/60')}
+                                  ${pi < nsPods.length - 1 ? (isDark ? 'border-b border-white/[0.04]' : 'border-b border-gray-100') : ''}
+                                `}
+                              >
+                                {/* Name + health dot */}
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Circle size={7} className={`flex-shrink-0 fill-current ${dotColor}`} />
+                                  <span className={`truncate font-mono text-xs ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                                    {pod.metadata.name}
+                                  </span>
+                                </div>
+                                {/* Phase */}
+                                <span className={`text-xs font-medium ${phaseColor}`}>{pod.status.phase}</span>
+                                {/* Node */}
+                                <span className={`text-xs truncate ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {pod.spec.nodeName ?? '—'}
+                                </span>
+                                {/* Restarts */}
+                                <span className={`text-xs text-center font-semibold ${restarts > 5 ? 'text-yellow-400' : restarts > 0 ? 'text-orange-400' : (isDark ? 'text-gray-400' : 'text-gray-500')}`}>
+                                  {restarts}
+                                </span>
+                                {/* Ready containers */}
+                                <span className={`text-xs text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {readyCount}/{totalContainers}
+                                </span>
+                                {/* Age */}
+                                <span className={`text-xs text-center ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{age}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </motion.div>
               )}
+              </AnimatePresence>
             </motion.div>
           );
         })}

@@ -1,6 +1,6 @@
 # OpenShift AI Assistant Backend
 
-FastAPI backend with Ollama integration for AI-powered OpenShift cluster management.
+FastAPI backend with Google Gemini AI integration for AI-powered OpenShift cluster management.
 
 ## Quick Start
 
@@ -20,16 +20,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Install Ollama & Model
+### 2. Configure Google AI API Key
 
-```bash
-# Install Ollama from https://ollama.ai/download
+Get a free API key at **https://aistudio.google.com/app/apikey**, then edit `backend/.env`:
 
-# Pull Llama 3.1 8B model
-ollama pull llama3.1:8b
-
-# Verify
-ollama list
+```env
+GOOGLE_API_KEY=your_google_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
 ```
 
 ### 3. Start Server
@@ -48,12 +45,12 @@ curl http://localhost:8000/health
 
 ## Features
 
-✅ **AI Chat** - Natural language queries with RAG
-✅ **OpenShift Integration** - Real-time cluster data
-✅ **Log Analysis** - AI-powered log interpretation
-✅ **RAG System** - Runbook and documentation search
-✅ **Security** - Whitelisted read-only commands
-✅ **Event Explanation** - AI explains OpenShift events
+OK **AI Chat** - Natural language queries with RAG powered by Google Gemini
+OK **OpenShift Integration** - Real-time cluster data
+OK **Log Analysis** - AI-powered log interpretation
+OK **RAG System** - Runbook and documentation search
+OK **Security** - Whitelisted read-only commands
+OK **Event Explanation** - AI explains OpenShift events
 
 ## API Endpoints
 
@@ -83,8 +80,8 @@ curl http://localhost:8000/health
 Edit `.env` file:
 
 ```env
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.1:8b
+GOOGLE_API_KEY=your_google_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
 API_HOST=0.0.0.0
 API_PORT=8000
 CHROMA_PERSIST_DIR=./chroma_db
@@ -93,11 +90,11 @@ CHROMA_PERSIST_DIR=./chroma_db
 ## Architecture
 
 ```
-main.py              # FastAPI application
-├── config.py        # Configuration settings
-├── openshift_client.py  # OpenShift API client
-├── ollama_client.py     # Ollama LLM client
-└── rag_system.py        # RAG with ChromaDB
+main.py                  # FastAPI application
++-- config.py            # Configuration settings
++-- openshift_client.py  # OpenShift API client
++-- google_ai_client.py  # Google Gemini AI client
++-- rag_system.py        # RAG with ChromaDB
 ```
 
 ## Security
@@ -121,14 +118,14 @@ All other commands are blocked.
 
 ## Troubleshooting
 
-### Ollama Not Found
+### Google AI API Error
 
 ```bash
-# Check if Ollama is running
-curl http://localhost:11434/api/tags
+# Verify your API key is set
+cat .env | grep GOOGLE_API_KEY
 
-# Start Ollama
-ollama serve
+# Test the health endpoint
+curl http://localhost:8000/health
 ```
 
 ### Import Errors
@@ -161,36 +158,15 @@ self.add_runbook(
 )
 ```
 
-### Add New Endpoint
-
-Edit `main.py`:
-
-```python
-@app.get("/api/my-endpoint")
-async def my_endpoint():
-    return {"message": "Hello"}
-```
-
 ## Production Deployment
-
-### Docker
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-EXPOSE 8000
-CMD ["python", "main.py"]
-```
 
 ### Environment Variables
 
 Set these in production:
 - `OPENSHIFT_API_URL`
 - `OPENSHIFT_TOKEN`
-- `OLLAMA_BASE_URL`
+- `GOOGLE_API_KEY`
+- `GEMINI_MODEL`
 - `API_HOST=0.0.0.0`
 - `API_PORT=8000`
 

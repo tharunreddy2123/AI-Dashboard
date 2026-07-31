@@ -11,10 +11,10 @@ Use this checklist to ensure your deployment is production-ready and won't have 
   - [ ] `OPENSHIFT_TOKEN` is valid and has necessary permissions
   - [ ] Token expiration is monitored
 
-- [ ] **Ollama Configuration**
-  - [ ] `OLLAMA_BASE_URL` points to deployed Ollama instance (NOT localhost)
-  - [ ] Ollama service is accessible from backend
-  - [ ] Required model is pulled and available
+- [ ] **Google AI Configuration**
+  - [ ] `GOOGLE_API_KEY` is set and valid
+  - [ ] `GEMINI_MODEL` is set (default: gemini-1.5-flash)
+  - [ ] API quota is sufficient for expected load
 
 - [ ] **CORS Configuration**
   - [ ] `CORS_ORIGINS` includes all production frontend domains
@@ -50,9 +50,9 @@ Use this checklist to ensure your deployment is production-ready and won't have 
   - [ ] DNS resolution works for OpenShift API URL
   - [ ] SSL/TLS certificates are valid
 
-- [ ] **Backend to Ollama**
-  - [ ] Network path exists from backend to Ollama
-  - [ ] Ollama service is reachable on configured port
+- [ ] **Backend to Google AI**
+  - [ ] Backend can reach https://generativelanguage.googleapis.com
+  - [ ] Outbound HTTPS (port 443) is allowed
   - [ ] No localhost references in production config
 
 - [ ] **Frontend to Backend**
@@ -60,40 +60,37 @@ Use this checklist to ensure your deployment is production-ready and won't have 
   - [ ] CORS is properly configured
   - [ ] API endpoints respond correctly
 
-## Docker Deployment
+## Deployment & Infrastructure
 
-If using Docker/Docker Compose:
+### Local/Server Deployment
 
-- [ ] **Images Built**
-  - [ ] Backend image builds successfully
-  - [ ] Frontend image builds successfully
-  - [ ] Images are tagged appropriately
+- [ ] **Python Environment**
+  - [ ] Python 3.9+ installed on target server
+  - [ ] Virtual environment created (recommended)
+  - [ ] All dependencies installed: `pip install -r requirements.txt`
 
-- [ ] **Environment Variables**
-  - [ ] All required env vars set in docker-compose.yml
-  - [ ] Secrets are not hardcoded in docker-compose.yml
-  - [ ] Using environment variable substitution
+- [ ] **Node.js & Frontend**
+  - [ ] Node.js 18+ installed
+  - [ ] Frontend built: `npm run build`
+  - [ ] Built files in `dist/` directory
+
+
+- [ ] **Process Management**
+  - [ ] Backend started with uvicorn or process manager
+  - [ ] Frontend served with nginx/Apache/http.server
+
+  - [ ] Services configured to restart on reboot
 
 - [ ] **Networking**
-  - [ ] Services can communicate via Docker network
-  - [ ] Ports are correctly exposed
-  - [ ] No port conflicts on host
-
-- [ ] **Volumes**
-  - [ ] ChromaDB data volume is persistent
-  - [ ] Ollama data volume is persistent (if using)
-  - [ ] Volumes have correct permissions
-
-- [ ] **Health Checks**
-  - [ ] Backend health check passes
-  - [ ] Frontend health check passes
-  - [ ] Health check intervals are appropriate
+  - [ ] Services can communicate via configured URLs
+  - [ ] Firewall rules allow necessary ports
+  - [ ] No localhost references in production config
 
 ## Testing
 
 - [ ] **Connection Tests**
   - [ ] Backend can connect to OpenShift API
-  - [ ] Backend can connect to Ollama
+  - [ ] Backend can connect to Google AI (check /health endpoint)
   - [ ] Frontend can connect to backend
   - [ ] All retry logic works as expected
 

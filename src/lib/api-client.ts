@@ -14,7 +14,7 @@ const getBackendUrl = (): string => {
   }
   
   // Default to localhost for development
-  return 'http://localhost:8000';
+  return 'http://localhost:8001';
 };
 
 export const BACKEND_URL = getBackendUrl();
@@ -26,9 +26,9 @@ interface RetryConfig {
 }
 
 const defaultRetryConfig: Required<RetryConfig> = {
-  maxRetries: 3,
-  retryDelay: 1000, // 1 second
-  timeout: 120000, // 120 seconds (increased for slow Ollama responses on CPU)
+  maxRetries: 1,
+  retryDelay: 1000,
+  timeout: 120000, // 2 minutes — watsonx.ai with cluster context can be slow
 };
 
 /**
@@ -113,7 +113,7 @@ export const apiClient = {
         include_context: includeContext,
       }),
     }, {
-      timeout: 120000, // 120 seconds for Ollama responses
+      timeout: 120000, // 2 minutes for watsonx.ai with cluster context
     });
     
     if (!response.ok) {

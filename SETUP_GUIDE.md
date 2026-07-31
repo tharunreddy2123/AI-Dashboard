@@ -1,394 +1,198 @@
-# OpenShift AI Assistant - Setup Guide (Docker)
+# OpenShift AI Assistant - Setup Guide (Local)
 
-Complete guide to set up your AI-powered OpenShift DevOps dashboard with Docker and Llama 3.1 8B.
+Complete guide to set up your AI-powered OpenShift DevOps dashboard running locally.
 
 ## Architecture Overview
 
 ```
-┌─────────────────────┐
-│ React Dashboard     │
-│ (Port 80)           │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ Nginx Reverse Proxy │
-│ (Port 80)           │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ FastAPI Backend     │
-│ (Port 8000)         │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ Ollama Container    │
-│ Llama 3.1 8B        │
-│ (Port 11434)        │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────┐
-│ OpenShift API       │
-│ ChromaDB (RAG)      │
-└─────────────────────┘
++---------------------+
+| React Frontend      |
+| (Port 5173)         |
+| Vite Dev Server     |
++----------+----------+
+           |
+           v
++----------+----------+
+| FastAPI Backend     |
+| (Port 8000)         |
+| Python + uvicorn    |
++----------+----------+
+           |
+           v
++----------+----------+
+| Google Gemini API   |
+| (gemini-1.5-flash)  |
+| via google-         |
+| generativeai SDK    |
++----------+----------+
+           |
+           v
++----------+----------+
+| OpenShift API       |
+| ChromaDB (RAG)      |
+| Local Storage       |
++---------------------+
 ```
 
 ## Prerequisites
 
-- **Docker** 20.10+ installed
-- **Docker Compose** 1.29+ installed
-- **16 GB RAM minimum** (for Llama 3.1 8B)
-- **20 GB free disk space** (for Docker images and models)
+- **Python 3.9+** installed
+- **Node.js 18+** installed
+- **Google AI API key** (free at https://aistudio.google.com/app/apikey)
 - **OpenShift cluster access** (API URL and token)
 
 ---
 
-## Step 1: Clone and Configure
+## Step 1: Get Google AI API Key
 
-### 1.1 Navigate to Project Directory
+1. Visit **https://aistudio.google.com/app/apikey**
+2. Sign in with your Google account
+3. Click **Create API key**
+4. Copy the key � you will add it to `backend/.env`
+
+---
+
+## Step 2: Configure the Backend
 
 ```bash
-cd project
-```
-
-### 1.2 Configure Environment Variables
-
-Copy the example environment files:
-
-```bash
+cd project/backend
 cp .env.example .env
-cp backend/.env.example backend/.env
 ```
 
-### 1.3 Update OpenShift Credentials
-
-Edit `project/.env`:
-```env
-VITE_OPENSHIFT_API_URL=https://api.rm3.7wse.p1.openshiftapps.com:6443
-VITE_OPENSHIFT_TOKEN=sha256~YOUR_TOKEN_HERE
-```
-
-Edit `project/backend/.env`:
+Edit `backend/.env`:
 ```env
 OPENSHIFT_API_URL=https://api.rm3.7wse.p1.openshiftapps.com:6443
 OPENSHIFT_TOKEN=sha256~YOUR_TOKEN_HERE
-OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=llama3.1:8b
+GOOGLE_API_KEY=your_google_api_key_here
+GEMINI_MODEL=gemini-1.5-flash
+```
+
+Get your OpenShift token from [TOKEN_UPDATE_GUIDE.md](TOKEN_UPDATE_GUIDE.md).
+
+---
+
+## Step 3: Install Python Dependencies
+
+**Windows:**
+```powershell
+cd project/backend
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+
+**macOS/Linux:**
+```bash
+cd project/backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 ---
 
-## Step 2: Start Services with Docker Compose
-
-### 2.1 Start All Containers
-
-```bash
-docker-compose up -d
-```
-
-This command will:
-1. Pull the Ollama image
-2. Build the backend container
-3. Build the frontend container
-4. Create Docker networks and volumes
-5. Start all services
-
-### 2.2 Verify Containers are Running
-
-```bash
-docker-compose ps
-```
-
-Expected output:
-```
-NAME                              STATUS    PORTS
-openshift-assistant-backend       Up        0.0.0.0:8000->8000/tcp
-openshift-assistant-frontend      Up        0.0.0.0:80->80/tcp
-openshift-assistant-ollama        Up        0.0.0.0:11434->11434/tcp
-```
-
-### 2.3 View Logs
-
-```bash
-# All services
-docker-compose logs -f
-
-# Specific service
-docker-compose logs -f backend
-```
-
----
-
-## Step 3: Download Ollama Model
-
-### 3.1 Pull Llama 3.1 8B Model
-
-```bash
-docker-compose exec ollama ollama pull llama3.1:8b
-```
-
-This downloads ~4.7 GB and may take 5-15 minutes.
-
-### 3.2 Verify Model Installation
-
-```bash
-docker-compose exec ollama ollama list
-```
-
-Expected output:
-```
-NAME              ID              SIZE      MODIFIED
-llama3.1:8b       <id>            4.7 GB    <date>
-```
-
-### 3.3 Test Ollama
-
-```bash
-docker-compose exec ollama ollama run llama3.1:8b "Hello, test message"
-```
-
----
-
-## Step 4: Access the Dashboard
-
-### 4.1 Open Browser
-
-Navigate to: **http://localhost**
-
-### 4.2 Test Backend API
-
-```bash
-curl http://localhost:8000/health
-```
-
-Expected response:
-```json
-{
-  "status": "healthy",
-  "ollama": "available",
-  "openshift": "connected"
-}
-```
-
-### 4.3 Test AI Chat
-
-1. Click the sparkle icon (AI button) in bottom-right
-2. Ask: "Show me unhealthy pods"
-3. The AI should respond with cluster information
-
----
-
-## Step 5: Daily Operations
-
-### Starting the Project
+## Step 4: Install Frontend Dependencies
 
 ```bash
 cd project
-docker-compose up -d
+npm install
 ```
 
-### Stopping the Project
+---
+
+## Step 5: Start Services
+
+### 5.1 Start Backend API
+
+**Windows:**
+```powershell
+cd project/backend
+# If using venv: .\venv\Scripts\Activate.ps1
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+**macOS/Linux:**
+```bash
+cd project/backend
+# If using venv: source venv/bin/activate
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 5.2 Start Frontend Development Server
+
+Open another terminal:
 
 ```bash
-docker-compose down
+cd project
+npm run dev
 ```
 
-### Restarting After Code Changes
+### 5.3 Verify Services are Running
 
-```bash
-# Rebuild and restart
-docker-compose up -d --build
+- **Backend:** http://localhost:8000/health
+- **Frontend:** http://localhost:5173
 
-# Or rebuild specific service
-docker-compose build backend
-docker-compose up -d backend
-```
+---
 
-### Viewing Logs
+## Step 6: Test the Application
 
-```bash
-# All logs
-docker-compose logs -f
-
-# Backend only
-docker-compose logs -f backend
-
-# Last 100 lines
-docker-compose logs --tail=100
-```
+1. Open **http://localhost:5173** in your browser
+2. Click the **AI Assistant button** (sparkle icon) in the bottom-right
+3. Ask "Show me unhealthy pods" and verify a response
 
 ---
 
 ## Troubleshooting
 
-### Container Won't Start
-
+### Google AI API Error
 ```bash
-# Check Docker daemon
-docker ps
+# Verify key is set
+cat backend/.env | grep GOOGLE_API_KEY
 
-# Check logs for errors
-docker-compose logs backend
-
-# Restart specific service
-docker-compose restart backend
-```
-
-### Port Already in Use
-
-Edit `docker-compose.yml` to change port mappings:
-
-```yaml
-services:
-  frontend:
-    ports:
-      - "8080:80"  # Change from 80 to 8080
-```
-
-### Ollama Not Responding
-
-```bash
-# Check Ollama container
-docker-compose ps ollama
-
-# Restart Ollama
-docker-compose restart ollama
-
-# Check Ollama logs
-docker-compose logs ollama
-
-# Test connectivity from backend
-docker-compose exec backend curl http://ollama:11434
-```
-
-### Model Not Found
-
-```bash
-# List models
-docker-compose exec ollama ollama list
-
-# Re-pull model
-docker-compose exec ollama ollama pull llama3.1:8b
-```
-
-### Backend Can't Connect to OpenShift
-
-1. Verify token in `backend/.env`
-2. Test connection:
-```bash
-docker-compose exec backend curl -k -H "Authorization: Bearer YOUR_TOKEN" https://api.rm3.7wse.p1.openshiftapps.com:6443/api/v1/namespaces
-```
-
-### Clean Restart
-
-```bash
-# Stop and remove all containers and volumes
-docker-compose down -v
-
-# Remove images (optional)
-docker-compose down --rmi all
-
-# Start fresh
-docker-compose up -d
-docker-compose exec ollama ollama pull llama3.1:8b
-```
-
----
-
-## Advanced Configuration
-
-### GPU Support (Optional)
-
-If you have NVIDIA GPU, uncomment in `docker-compose.yml`:
-
-```yaml
-ollama:
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - driver: nvidia
-            count: 1
-            capabilities: [gpu]
-```
-
-### Custom Ollama Model
-
-Edit `backend/.env`:
-```env
-OLLAMA_MODEL=llama3.1:70b  # Use larger model
-```
-
-Then pull the model:
-```bash
-docker-compose exec ollama ollama pull llama3.1:70b
-```
-
-### Resource Limits
-
-Edit `docker-compose.yml` to add resource limits:
-
-```yaml
-backend:
-  deploy:
-    resources:
-      limits:
-        cpus: '2'
-        memory: 4G
-```
-
----
-
-## Monitoring
-
-### Container Stats
-
-```bash
-docker stats
-```
-
-### Health Checks
-
-```bash
-# Backend health
+# Check health endpoint
 curl http://localhost:8000/health
-
-# Ollama health
-curl http://localhost:11434
-
-# Frontend
-curl http://localhost/
+# Should show: "google_ai": "healthy"
 ```
 
-### Disk Usage
+### Backend Connection Error
+```bash
+curl http://localhost:8000
+
+# Check Python installation
+python --version
+
+# Verify dependencies
+pip list | grep -E "fastapi|uvicorn|google-generativeai"
+```
+
+### Frontend Not Loading
+```bash
+cd project
+npm cache clean --force
+npm install
+npm run dev
+```
+
+---
+
+## Daily Startup
 
 ```bash
-# Docker disk usage
-docker system df
+# Terminal 1
+cd project/backend && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# Clean up unused resources
-docker system prune -a
+# Terminal 2
+cd project && npm run dev
 ```
+
+Access at **http://localhost:5173**.
 
 ---
 
 ## Production Deployment
 
-For production deployment, see:
-- `DEPLOYMENT_GUIDE.md` - Production setup
-- `PRODUCTION_CHECKLIST.md` - Pre-deployment checklist
+For deploying to production, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).
 
 ---
 
-## Additional Resources
-
-- **Docker Compose Reference**: https://docs.docker.com/compose/
-- **Ollama Documentation**: https://ollama.ai/docs
-- **OpenShift API**: https://docs.openshift.com/
-
----
-
-**Your AI-powered OpenShift assistant is ready! 🚀**
+**Your AI-powered OpenShift assistant is ready!**

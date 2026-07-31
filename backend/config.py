@@ -5,24 +5,31 @@ class Settings(BaseSettings):
     # OpenShift Configuration (loaded from backend/.env file)
     openshift_api_url: str = "https://api.rm3.7wse.p1.openshiftapps.com:6443"
     openshift_token: str = ""  # Must be set in backend/.env file
-    
-    # Ollama Configuration
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.1:8b"
-    
+
+    # IBM Consulting Advantage (ICA) AI Configuration
+    ica_api_key: str = ""
+    ica_base_url: str = "https://api.ica.ibm.com/v1"
+    ica_model: str = "meta-llama/llama-3-3-70b-instruct"
+
+    # IBM watsonx.ai Configuration
+    watsonx_api_key: str = ""          # Must be set in backend/.env file
+    watsonx_base_url: str = "https://eu-gb.ml.cloud.ibm.com"
+    watsonx_project_id: str = ""       # Must be set in backend/.env file
+    watsonx_model: str = "meta-llama/llama-3-3-70b-instruct"
+
     # ChromaDB Configuration
     chroma_persist_dir: str = "./chroma_db"
-    
+
     # API Configuration
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    
+
     # CORS Configuration
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
-    
+
     # Environment
     environment: str = "development"
-    
+
     # Connection retry settings
     max_retries: int = 3
     retry_delay: int = 2

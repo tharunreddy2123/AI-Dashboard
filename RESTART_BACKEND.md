@@ -1,129 +1,90 @@
-# How to Restart Backend to Load New Configuration
+# How to Restart Backend
 
-The backend is still using the old `OLLAMA_BASE_URL=http://ollama:11434` configuration.
+Quick guide to restart the backend API after configuration changes.
 
-## Quick Fix
+## Stop Backend
 
-**Stop the backend** (press Ctrl+C in the terminal where it's running)
+Press `Ctrl+C` in the terminal where the backend is running.
 
-**Then restart it:**
+## Restart Backend
 
+**Windows (PowerShell):**
 ```powershell
-cd C:\Users\TharunReddy\OneDrive - IBM\Documents\project\project\backend
-python main.py
+cd project/backend
+
+# Activate virtual environment if you created one:
+.\venv\Scripts\Activate.ps1
+
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-You should see output like:
+**macOS/Linux:**
+```bash
+cd project/backend
+
+# Activate virtual environment if you created one:
+source venv/bin/activate
+
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
-INFO:     Started server process
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
+
+## Verify Backend is Running
+
+You should see:
+```
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-## Verify Configuration
-
-After restarting, check the backend is using the correct Ollama URL:
+Test the backend:
 
 ```powershell
-# Test backend health
+# Windows
+Invoke-WebRequest -Uri "http://localhost:8000/health" | Select-Object -ExpandProperty Content
+```
+```bash
+# macOS/Linux
 curl http://localhost:8000/health
 ```
 
-Should return:
-```json
-{
-  "api": "healthy",
-  "ollama": "healthy",
-  "model": "llama3.1:8b",
-  ...
-}
-```
+## Configuration Changes
 
-If `ollama` shows "unavailable", then:
+After restarting, the backend will load new configuration from `backend/.env`. Common changes:
 
-1. **Check Ollama Docker is running:**
-```powershell
-docker ps | findstr ollama
-```
-
-2. **If not running, start it:**
-```powershell
-cd C:\Users\TharunReddy\OneDrive - IBM\Documents\project\project
-docker-compose up -d ollama
-```
-
-3. **Pull the model:**
-```powershell
-docker-compose exec ollama ollama pull llama3.1:8b
-```
-
-4. **Test Ollama directly:**
-```powershell
-curl http://localhost:11434
-```
-
-Should return: `Ollama is running`
-
-## Complete Restart Sequence
-
-If still having issues, do a complete restart:
-
-```powershell
-# 1. Stop backend (Ctrl+C)
-
-# 2. Stop frontend (Ctrl+C)
-
-# 3. Ensure Ollama is running
-cd C:\Users\TharunReddy\OneDrive - IBM\Documents\project\project
-docker-compose up -d ollama
-docker-compose exec ollama ollama pull llama3.1:8b
-
-# 4. Start backend
-cd backend
-python main.py
-
-# 5. In another terminal, start frontend
-cd C:\Users\TharunReddy\OneDrive - IBM\Documents\project\project
-npm run dev
-
-# 6. Open browser
-# http://localhost:5173
-```
+- **Google AI key:** `GOOGLE_API_KEY=your_key`
+- **Gemini model:** `GEMINI_MODEL=gemini-1.5-flash`
+- **OpenShift token:** `OPENSHIFT_TOKEN=sha256~YOUR_TOKEN`
+- **CORS origins:** `CORS_ORIGINS=http://localhost:5173`
 
 ## Troubleshooting
 
-### Backend still shows "http://ollama:11434"
+### Backend won't start
 
-Check the `.env` file:
-```powershell
-cat backend\.env | findstr OLLAMA_BASE_URL
+1. **Check Python version:**
+   ```bash
+   python --version  # Should be 3.9+
+   ```
+
+2. **Check dependencies installed:**
+   ```bash
+   pip list | findstr fastapi           # Windows
+   pip list | grep fastapi              # macOS/Linux
+   pip list | grep google-generativeai  # Verify AI SDK
+   ```
+
+3. **Check port 8000 is available:**
+   ```bash
+   # Windows
+   netstat -ano | findstr 8000
+
+   # macOS/Linux
+   lsof -i :8000
+   ```
+
+### Google AI connection error
+
+Ensure `GOOGLE_API_KEY` is set in `backend/.env` and is valid:
+```bash
+cat backend/.env | grep GOOGLE_API_KEY
 ```
 
-Should show:
-```
-OLLAMA_BASE_URL=http://localhost:11434
-```
-
-If it shows `http://ollama:11434`, edit `backend/.env` and change it to `http://localhost:11434`, then restart backend.
-
-### Ollama not accessible
-
-```powershell
-# Check if Ollama container is running
-docker ps
-
-# Check Ollama logs
-docker-compose logs ollama
-
-# Restart Ollama
-docker-compose restart ollama
-```
-
-### Port 11434 already in use
-
-```powershell
-# Find what's using port 11434
-netstat -ano | findstr 11434
-
-# Kill the process or change the port in docker-compose.yml
+Get a key at https://aistudio.google.com/app/apikey

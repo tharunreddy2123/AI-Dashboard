@@ -18,6 +18,13 @@ async function openshiftFetch(path: string): Promise<unknown> {
     });
 
     if (!res.ok) {
+      if (res.status === 401) {
+        throw new Error(
+          'OpenShift token is expired or invalid (HTTP 401). ' +
+          'Get a new token from the OpenShift console (username → Copy login command → Display Token) ' +
+          'and update VITE_OPENSHIFT_TOKEN in project/.env and OPENSHIFT_TOKEN in project/backend/.env, then restart both servers.'
+        );
+      }
       const body = await res.text();
       let msg = `OpenShift API error: ${res.status}`;
       try {

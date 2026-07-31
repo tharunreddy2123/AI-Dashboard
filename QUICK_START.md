@@ -1,99 +1,73 @@
-# 🚀 Quick Start Guide - Docker
+# Quick Start Guide - Local Setup
 
-Get your AI-powered OpenShift assistant running with Docker!
+Get your AI-powered OpenShift assistant running locally with Google Gemini!
 
-## Step 1: Configure Environment
+## Prerequisites
 
-Copy and update the environment files:
+- **Python 3.9+** and **Node.js 18+** installed
+- **Google AI API key** (free at https://aistudio.google.com/app/apikey)
+- **OpenShift token** ready to configure
+
+## Quick Start (5 minutes)
+
+### 1. Configure Backend
 
 ```bash
-# Copy example files
+cd project/backend
 cp .env.example .env
-cp backend/.env.example backend/.env
+# Edit .env and set OPENSHIFT_TOKEN and GOOGLE_API_KEY
 ```
 
-Edit both `.env` files and add your OpenShift token:
-```env
-OPENSHIFT_TOKEN=sha256~YOUR_TOKEN_HERE
-```
+### 2. Install Dependencies
 
-## Step 2: Start with Docker Compose
-
+**Backend:**
 ```bash
-# Start all services (backend, frontend, ollama)
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Check status
-docker-compose ps
+cd project/backend
+pip install -r requirements.txt
 ```
 
-This will:
-- Start Ollama container with Llama 3.1 8B
-- Start backend API on port 8000
-- Start frontend on port 80
-
-## Step 3: Pull Ollama Model (First Time Only)
-
+**Frontend:**
 ```bash
-# Pull the Llama 3.1 8B model into the container
-docker-compose exec ollama ollama pull llama3.1:8b
+cd project
+npm install
 ```
 
-## Step 4: Access the Dashboard
+### 3. Start Services
 
-Open your browser to: **http://localhost**
-
-## Useful Commands
-
+**Terminal 1 - Backend:**
 ```bash
-# Stop all services
-docker-compose down
-
-# Restart services
-docker-compose restart
-
-# View backend logs
-docker-compose logs -f backend
-
-# View ollama logs
-docker-compose logs -f ollama
-
-# Rebuild after code changes
-docker-compose up -d --build
-
-# Remove all containers and volumes
-docker-compose down -v
+cd project/backend
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+**Terminal 2 - Frontend:**
+```bash
+cd project
+npm run dev
+```
+
+### 4. Open Application
+
+Navigate to: **http://localhost:5173**
 
 ## Troubleshooting
 
-### Ollama not responding
+### Backend health check
 ```bash
-# Check if ollama container is running
-docker-compose ps ollama
-
-# Restart ollama
-docker-compose restart ollama
-
-# Check ollama logs
-docker-compose logs ollama
+curl http://localhost:8000/health
 ```
 
-### Backend can't connect to Ollama
+### Google AI not responding
+- Verify `GOOGLE_API_KEY` is set in `backend/.env`
+- Ensure the key is valid at https://aistudio.google.com/app/apikey
+
+### Frontend Issues
 ```bash
-# Verify ollama is accessible from backend
-docker-compose exec backend curl http://ollama:11434
-
-# Check network connectivity
-docker network inspect project_app-network
+rm -rf node_modules package-lock.json
+npm install
+npm run dev
 ```
-
-### Port conflicts
-If ports 80, 8000, or 11434 are already in use, edit `docker-compose.yml` to change the port mappings.
 
 ---
 
-**Your AI assistant is ready! 🎉**
+**Your AI assistant is ready!**
