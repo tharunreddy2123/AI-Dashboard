@@ -1,20 +1,15 @@
 from pydantic_settings import BaseSettings
-from typing import Optional, List
+from typing import List
 
 class Settings(BaseSettings):
-    # OpenShift Configuration (loaded from backend/.env file)
+    # OpenShift Configuration
     openshift_api_url: str = "https://api.rm3.7wse.p1.openshiftapps.com:6443"
-    openshift_token: str = ""  # Must be set in backend/.env file
-
-    # IBM Consulting Advantage (ICA) AI Configuration
-    ica_api_key: str = ""
-    ica_base_url: str = "https://api.ica.ibm.com/v1"
-    ica_model: str = "meta-llama/llama-3-3-70b-instruct"
+    openshift_token: str = ""
 
     # IBM watsonx.ai Configuration
-    watsonx_api_key: str = ""          # Must be set in backend/.env file
+    watsonx_api_key: str = ""
     watsonx_base_url: str = "https://eu-gb.ml.cloud.ibm.com"
-    watsonx_project_id: str = ""       # Must be set in backend/.env file
+    watsonx_project_id: str = ""
     watsonx_model: str = "meta-llama/llama-3-3-70b-instruct"
 
     # ChromaDB Configuration
@@ -34,30 +29,22 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 2
     request_timeout: int = 30
-    
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string"""
-        origins = [origin.strip() for origin in self.cors_origins.split(",")]
-        # In production, add wildcard only if explicitly set
-        if self.environment == "production" and "*" not in origins:
-            return origins
-        return origins
-    
+        return [origin.strip() for origin in self.cors_origins.split(",")]
+
     @property
     def is_production(self) -> bool:
-        """Check if running in production"""
         return self.environment.lower() == "production"
-    
+
     @property
     def is_development(self) -> bool:
-        """Check if running in development"""
         return self.environment.lower() == "development"
-    
+
     class Config:
         env_file = ".env"
         case_sensitive = False
 
 settings = Settings()
-
-# Made with Bob

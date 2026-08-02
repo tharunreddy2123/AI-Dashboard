@@ -120,7 +120,7 @@ class WatsonXClient:
         return messages
 
     # ------------------------------------------------------------------
-    # Public API (same interface as ICAClient)
+    # Public API
     # ------------------------------------------------------------------
 
     async def answer_question(
