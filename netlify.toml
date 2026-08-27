@@ -1,0 +1,28 @@
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# ── Dev server (netlify dev) ─────────────────────────────────────────────────
+[dev]
+  command   = "npm run dev"
+  port      = 5173
+  targetPort = 5173
+
+# ── SPA fallback — all non-asset routes serve index.html ────────────────────
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# ── Function timeout: watsonx.ai + cluster context can be slow ──────────────
+[functions]
+  node_bundler = "esbuild"
+
+[functions."api"]
+  # Netlify Functions max is 26 seconds on Pro, 10s on free tier.
+  # Increase as allowed by your plan.
+  included_files = []

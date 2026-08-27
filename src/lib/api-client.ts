@@ -1,20 +1,19 @@
 // API Client with environment-aware configuration and retry logic
 
 const getBackendUrl = (): string => {
-  // Check if VITE_BACKEND_API_URL is set in environment
+  // Explicit override (set in .env.local for dev, or Netlify env vars for prod)
   const envUrl = import.meta.env.VITE_BACKEND_API_URL;
-  
   if (envUrl) {
-    return envUrl;
+    return envUrl.replace(/\/$/, "");
   }
-  
-  // In production, use relative path (assumes frontend and backend on same domain)
+
+  // Production on Netlify: proxy through the Netlify Function to avoid CORS
   if (import.meta.env.PROD) {
-    return '/api';
+    return '/.netlify/functions/api';
   }
-  
-  // Default to localhost for development
-  return 'http://localhost:8001';
+
+  // Local development default
+  return 'http://localhost:8000';
 };
 
 export const BACKEND_URL = getBackendUrl();

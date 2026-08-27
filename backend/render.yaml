@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: openshift-ai-backend
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+
+    envVars:
+      - key: OPENSHIFT_API_URL
+        value: https://api.rm3.7wse.p1.openshiftapps.com:6443
+      - key: OPENSHIFT_TOKEN
+        sync: false          # paste: sha256~dRZGvVkp1FnEadcYML6l6rn6W743IStvDlAzLqfRhAQ — mark as SECRET
+      - key: WATSONX_API_KEY
+        sync: false          # paste: lHm_RhZegZErFPK9HDXffPNerm9vIB5RUe8PNMid4mcx — mark as SECRET
+      - key: WATSONX_BASE_URL
+        value: https://eu-gb.ml.cloud.ibm.com
+      - key: WATSONX_PROJECT_ID
+        sync: false          # paste: 13561b59-e277-4250-98a3-2ccd0c4caee0
+      - key: WATSONX_MODEL
+        value: meta-llama/llama-3-3-70b-instruct
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        value: https://cluster-dashboard-ai.netlify.app
+      - key: CHROMA_PERSIST_DIR
+        value: ./chroma_db
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: MAX_RETRIES
+        value: "3"
+      - key: RETRY_DELAY
+        value: "2"
+      - key: REQUEST_TIMEOUT
+        value: "30"
+
+    disk:
+      name: chroma-data
+      mountPath: /opt/render/project/src/chroma_db
+      sizeGB: 1
