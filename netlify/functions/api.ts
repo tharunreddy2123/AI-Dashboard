@@ -38,10 +38,17 @@ const handler: Handler = async (
   }
 
   // Strip the function prefix: /.netlify/functions/api/health → /health
+  // Also handle the case where Netlify passes the path without the function prefix
   const rawPath = event.path ?? "/";
-  const stripped = rawPath.replace(/^\/.netlify\/functions\/api/, "") || "/";
+  const stripped = rawPath
+    .replace(/^\/.netlify\/functions\/api/, "")
+    .replace(/^\/api\/api\//, "/api/") // guard against double /api/api/
+    || "/";
   const qs = event.rawQuery ? `?${event.rawQuery}` : "";
   const targetUrl = `${BACKEND_URL}${stripped}${qs}`;
+
+  // Log for debugging (visible in Netlify Function logs)
+  console.log(`[proxy] ${event.httpMethod} ${rawPath} → ${targetUrl}`);
 
   // Forward headers — drop host so the backend sees its own host
   const forwardHeaders: Record<string, string> = {};
