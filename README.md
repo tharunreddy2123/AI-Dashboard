@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # OpenShift AI Assistant
 
 AI-powered DevOps dashboard for OpenShift cluster management with **Google Gemini** integration.
@@ -184,3 +185,6 @@ MIT License
 **Built with love for DevOps teams**
 
 Start chatting with your OpenShift cluster today!
+=======
+# AI-Dashboard
+>>>>>>> f1c1b3fe3116b5a821a586c5a0eeddbdfd6e52b1
