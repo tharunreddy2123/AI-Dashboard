@@ -35,7 +35,11 @@ async function openshiftFetch(path: string): Promise<unknown> {
       throw new Error(msg);
     }
 
-    return res.json();
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return res.json();
+    }
+    return res.text();
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -65,7 +69,13 @@ export interface OCPodContainerStatus {
 }
 
 export interface OCPod {
-  metadata: { name: string; namespace: string; uid: string; creationTimestamp: string };
+  metadata: {
+    name: string;
+    namespace: string;
+    uid: string;
+    creationTimestamp: string;
+    ownerReferences?: Array<{ kind: string; name: string; uid: string }>;
+  };
   spec: { nodeName?: string; containers: OCPodContainer[] };
   status: { phase: string; containerStatuses?: OCPodContainerStatus[] };
 }

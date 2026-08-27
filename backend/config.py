@@ -1,7 +1,9 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
+
     # OpenShift Configuration
     openshift_api_url: str = "https://api.rm3.7wse.p1.openshiftapps.com:6443"
     openshift_token: str = ""
@@ -42,9 +44,5 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.environment.lower() == "development"
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
 settings = Settings()

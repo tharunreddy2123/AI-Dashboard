@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import {
   getNamespaces,
@@ -27,6 +27,8 @@ import {
   RefreshCw,
   Clock,
   Layers,
+  Radio,
+  ChevronDown,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -173,8 +175,15 @@ function UtilBar({ label, value, unit = '%', warn = 70, crit = 85 }: {
 
 // ── main component ────────────────────────────────────────────────────────────
 
-const TICK_MS = 30_000; // refresh metrics every 30 s
-const WINDOW  = 20;     // keep last 20 data points
+const WINDOW = 20; // keep last 20 data points
+
+// Available live-poll intervals in seconds
+const INTERVALS = [
+  { label: '10 s',  ms: 10_000 },
+  { label: '30 s',  ms: 30_000 },
+  { label: '1 min', ms: 60_000 },
+  { label: '2 min', ms: 120_000 },
+];
 
 export default function Dashboard() {
   const { isDark } = useTheme();
@@ -186,14 +195,25 @@ export default function Dashboard() {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState<string | null>(null);
   const [lastRefresh,  setLastRefresh]  = useState('');
+  const [refreshing,   setRefreshing]   = useState(false); // silent refresh indicator
+
+  // live-poll state
+  const [liveOn,       setLiveOn]       = useState(false);
+  const [intervalMs,   setIntervalMs]   = useState(30_000);
+  const [showInterval, setShowInterval] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // countdown to next live refresh
+  const [countdown, setCountdown] = useState(0);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nextTickRef  = useRef<number>(0);
 
   // rolling time-series for resource utilisation
   const [series, setSeries] = useState<{ time: string; cpu: number; mem: number; disk: number }[]>([]);
-  const seriesRef = useRef(series);
-  seriesRef.current = series;
 
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     try {
       const [ns, pd, nd, dep, ev] = await Promise.all([
@@ -214,16 +234,63 @@ export default function Dashboard() {
       if (!silent) setError(err instanceof Error ? err.message : 'Failed to fetch cluster data');
     }
     if (!silent) setLoading(false);
+    else setRefreshing(false);
   }, []);
 
   // Initial load
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Auto-refresh every 30 s (silent — no full-page spinner)
+  // ── live polling ─────────────────────────────────────────────────────────
+
+  const startCountdown = useCallback((ms: number) => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    nextTickRef.current = Date.now() + ms;
+    setCountdown(Math.round(ms / 1000));
+    countdownRef.current = setInterval(() => {
+      const remaining = Math.max(0, Math.round((nextTickRef.current - Date.now()) / 1000));
+      setCountdown(remaining);
+    }, 500);
+  }, []);
+
+  const stopCountdown = useCallback(() => {
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    setCountdown(0);
+  }, []);
+
+  const startLive = useCallback((ms: number) => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      fetchData(true);
+      nextTickRef.current = Date.now() + ms;
+    }, ms);
+    startCountdown(ms);
+  }, [fetchData, startCountdown]);
+
+  const stopLive = useCallback(() => {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    stopCountdown();
+  }, [stopCountdown]);
+
+  // When liveOn or intervalMs changes, restart/stop the timer
   useEffect(() => {
-    const id = setInterval(() => fetchData(true), TICK_MS);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    if (liveOn) {
+      startLive(intervalMs);
+    } else {
+      stopLive();
+    }
+    return () => stopLive();
+  }, [liveOn, intervalMs]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close interval dropdown when clicking outside
+  useEffect(() => {
+    if (!showInterval) return;
+    const close = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-interval-menu]')) setShowInterval(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showInterval]);
 
   // ── computed stats ────────────────────────────────────────────────────────
   const runningPods   = pods.filter(p => p.status.phase === 'Running').length;
@@ -312,22 +379,130 @@ export default function Dashboard() {
         <div>
           <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Operations Dashboard</h1>
           <p className={`text-sm mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-            Live · {namespaces.length} projects · {pods.length} pods{nodes.length > 0 ? ` · ${nodes.length} nodes` : ''}
+            {namespaces.length} projects · {pods.length} pods{nodes.length > 0 ? ` · ${nodes.length} nodes` : ''}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {/* Last updated */}
           {lastRefresh && (
             <div className={`hidden md:flex items-center gap-1.5 text-xs ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
               <Clock size={12} />
               <span>Updated {lastRefresh}</span>
             </div>
           )}
-          <span className={`text-xs px-3 py-1.5 rounded-full ${isDark ? 'bg-emerald-400/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'}`}>
-            ● Live
-          </span>
-          <button onClick={() => fetchData()} className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/[0.06] text-gray-400' : 'hover:bg-gray-100 text-gray-500'}`}>
-            <RefreshCw size={16} />
+
+          {/* Silent refresh spinner */}
+          {refreshing && (
+            <RefreshCw size={13} className="animate-spin text-blue-400" />
+          )}
+
+          {/* Manual refresh */}
+          <button
+            onClick={() => fetchData()}
+            title="Refresh now"
+            className={`p-2 rounded-lg transition-colors ${isDark ? 'hover:bg-white/[0.06] text-gray-400 hover:text-white' : 'hover:bg-gray-100 text-gray-500'}`}
+          >
+            <RefreshCw size={15} />
           </button>
+
+          {/* ── Live button + interval picker ── */}
+          <div className="relative flex items-center" data-interval-menu>
+            {/* Interval picker dropdown */}
+            <button
+              onClick={() => setShowInterval(v => !v)}
+              title="Set refresh interval"
+              className={`flex items-center gap-0.5 pl-2 pr-1 py-1.5 rounded-l-lg border-r text-xs font-medium transition-colors ${
+                liveOn
+                  ? isDark
+                    ? 'bg-emerald-500/15 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/25'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+                  : isDark
+                    ? 'bg-white/[0.04] border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                    : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              {INTERVALS.find(i => i.ms === intervalMs)?.label ?? '30 s'}
+              <ChevronDown size={10} className="ml-0.5" />
+            </button>
+
+            {/* Live toggle button */}
+            <button
+              onClick={() => setLiveOn(v => !v)}
+              title={liveOn ? 'Stop live updates' : 'Start live updates'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-r-lg text-xs font-semibold transition-all ${
+                liveOn
+                  ? isDark
+                    ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25'
+                    : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                  : isDark
+                    ? 'bg-white/[0.04] text-gray-400 hover:bg-white/[0.08]'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              {liveOn ? (
+                <>
+                  {/* Pulsing dot */}
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                  </span>
+                  Live
+                  {countdown > 0 && (
+                    <span className={`ml-0.5 text-[10px] font-mono ${isDark ? 'text-emerald-600' : 'text-emerald-400'}`}>
+                      {countdown}s
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Radio size={12} />
+                  Live
+                </>
+              )}
+            </button>
+
+            {/* Interval dropdown menu */}
+            <AnimatePresence>
+              {showInterval && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.12 }}
+                  className={`absolute top-full right-0 mt-1.5 z-50 rounded-xl border shadow-xl overflow-hidden w-32 ${
+                    isDark ? 'bg-[#0d1220] border-white/[0.08]' : 'bg-white border-gray-200'
+                  }`}
+                >
+                  <p className={`text-[10px] font-semibold uppercase tracking-wider px-3 pt-2.5 pb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
+                    Interval
+                  </p>
+                  {INTERVALS.map(iv => (
+                    <button
+                      key={iv.ms}
+                      onClick={() => {
+                        setIntervalMs(iv.ms);
+                        setShowInterval(false);
+                        if (liveOn) startLive(iv.ms);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between ${
+                        intervalMs === iv.ms
+                          ? isDark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                          : isDark ? 'text-gray-300 hover:bg-white/[0.06]' : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {iv.label}
+                      {intervalMs === iv.ms && <span className="text-[9px]">✓</span>}
+                    </button>
+                  ))}
+                  <div className={`px-3 py-2 border-t ${isDark ? 'border-white/[0.06]' : 'border-gray-100'}`}>
+                    <p className={`text-[10px] ${isDark ? 'text-gray-600' : 'text-gray-400'}`}>
+                      Only active when Live is ON
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 

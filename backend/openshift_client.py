@@ -24,6 +24,10 @@ class OpenShiftClient:
         "oc logs {pod} -n {namespace}",
         "oc logs {pod} -n {namespace} --tail=100",
         "oc get all -n {namespace}",
+        "oc scale deployment {name} --replicas={replicas} -n {namespace}",
+        "oc scale deploymentconfig {name} --replicas={replicas} -n {namespace}",
+        "oc scale replicationcontroller {name} --replicas={replicas} -n {namespace}",
+        "oc scale statefulset {name} --replicas={replicas} -n {namespace}",
     ]
     
     def __init__(self):
@@ -62,17 +66,30 @@ class OpenShiftClient:
                 await asyncio.sleep(self.retry_delay * (attempt + 1))
         return {"error": last_error, "items": []}
 
-    async def _api_request_text(self, path: str) -> str:
+    async def _api_request_text(self, path: str, timeout: int = 60) -> str:
         """Make a plain-text request to OpenShift API (used for pod logs)"""
         url = f"{self.api_url}{path}"
+        print(f"[LOG REQUEST] GET {url}", flush=True)
         try:
-            async with httpx.AsyncClient(verify=False, timeout=self.timeout) as client:
+            async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
                 response = await client.get(url, headers=self.headers)
-                if response.status_code in (401, 403):
-                    return f"Error: HTTP {response.status_code} - insufficient permissions"
+                print(f"[LOG RESPONSE] status={response.status_code} len={len(response.text)} bytes", flush=True)
+                if response.status_code == 401:
+                    return "Error: HTTP 401 - token expired or invalid"
+                if response.status_code == 403:
+                    # Return the K8s error body — it names exactly what RBAC rule is missing
+                    try:
+                        body = response.json()
+                        msg = body.get("message") or body.get("reason") or "insufficient permissions"
+                    except Exception:
+                        msg = response.text[:300] or "insufficient permissions"
+                    print(f"[LOG 403] {msg}", flush=True)
+                    return f"Error: HTTP 403 - {msg}"
                 response.raise_for_status()
+                print(f"[LOG CONTENT] first 200 chars: {response.text[:200]!r}", flush=True)
                 return response.text
         except Exception as e:
+            print(f"[LOG EXCEPTION] {e}", flush=True)
             return f"Error fetching logs: {str(e)}"
 
     async def get_namespaces(self) -> List[Dict[str, Any]]:
@@ -130,10 +147,66 @@ class OpenShiftClient:
                 all_events.extend(data.get("items", []))
         return all_events
 
-    async def get_pod_logs(self, namespace: str, pod_name: str, tail_lines: int = 100) -> str:
-        """Get logs from a specific pod (plain text response)"""
-        path = f"/api/v1/namespaces/{namespace}/pods/{pod_name}/log?tailLines={tail_lines}"
-        return await self._api_request_text(path)
+    async def get_pod_logs(self, namespace: str, pod_name: str, tail_lines: int = 0, container: Optional[str] = None) -> str:
+        """Get logs from a specific pod.
+
+        For crashed/CrashLoopBackOff pods the current container may be in waiting
+        state with no output — so we also try &previous=true to fetch the last
+        terminated container's logs as a fallback.
+
+        Also falls back to every other container in the pod spec if a 403 is
+        returned (common in shared namespaces).
+        """
+        async def _fetch(ctr: Optional[str], previous: bool = False) -> str:
+            params: List[str] = []
+            # tail_lines=0 means fetch all logs (no limit)
+            if tail_lines and tail_lines > 0:
+                params.append(f"tailLines={tail_lines}")
+            if ctr:
+                params.append(f"container={ctr}")
+            if previous:
+                params.append("previous=true")
+            qs = ("?" + "&".join(params)) if params else ""
+            path = f"/api/v1/namespaces/{namespace}/pods/{pod_name}/log{qs}"
+            return await self._api_request_text(path, timeout=60)
+
+        result = await _fetch(container)
+
+        # Empty output on a live container — try previous (last crashed) container logs
+        if result.strip() == "" or result.strip() == "(no log output)":
+            prev = await _fetch(container, previous=True)
+            # Only use previous if it actually returned content (not an error)
+            if prev.strip() and not prev.startswith("Error"):
+                return f"[previous container logs]\n{prev}"
+            # Still nothing — return the original empty result
+            return result
+
+        if not result.startswith("Error: HTTP 403"):
+            return result
+
+        # 403 on the requested container — fetch pod spec and try each container
+        pod_data = await self._api_request(f"/api/v1/namespaces/{namespace}/pods/{pod_name}")
+        containers: List[str] = [
+            c.get("name", "") for c in
+            pod_data.get("spec", {}).get("containers", [])
+            if c.get("name") and c.get("name") != container
+        ]
+        for ctr in containers:
+            alt = await _fetch(ctr)
+            if not alt.startswith("Error: HTTP 403"):
+                return f"[container: {ctr}]\n{alt}"
+
+        # All containers returned 403 — surface a clear RBAC message
+        all_ctrs = ([container] if container else []) + containers
+        ctr_list = ", ".join(all_ctrs) if all_ctrs else "unknown"
+        return (
+            f"Error: Logs are not accessible for this pod.\n\n"
+            f"The cluster token does not have 'get' permission on the pods/log "
+            f"sub-resource in namespace '{namespace}'.\n\n"
+            f"Containers in this pod: {ctr_list}\n\n"
+            f"To fix: ask a cluster admin to grant:\n"
+            f"  verb: get  resource: pods/log  namespace: {namespace}"
+        )
 
     async def get_cluster_health(self) -> Dict[str, Any]:
         """Get overall cluster health across all accessible namespaces"""
@@ -164,33 +237,167 @@ class OpenShiftClient:
     
 
     async def describe_pod(self, namespace: str, pod_name: str) -> str:
-        """Get full pod description as formatted text"""
-        data = await self._api_request(f"/api/v1/namespaces/{namespace}/pods/{pod_name}")
-        if "error" in data:
-            return f"Error: {data['error']}"
-        meta   = data.get("metadata", {})
-        spec   = data.get("spec", {})
-        status = data.get("status", {})
-        lines  = [
-            f"Pod: {meta.get('name','?')}",
-            f"Namespace: {meta.get('namespace','?')}",
-            f"Node: {spec.get('nodeName','?')}",
-            f"Phase: {status.get('phase','?')}",
-            f"IP: {status.get('podIP','?')}",
-            f"Labels: {meta.get('labels',{})}",
-            "Containers:",
+        """Get full pod description as formatted text (mirrors oc describe pod)"""
+        pod_data, events_data = await asyncio.gather(
+            self._api_request(f"/api/v1/namespaces/{namespace}/pods/{pod_name}"),
+            self._api_request(
+                f"/api/v1/namespaces/{namespace}/events"
+                f"?fieldSelector=involvedObject.name={pod_name},involvedObject.namespace={namespace}"
+            ),
+        )
+        if "error" in pod_data:
+            return f"Error: {pod_data['error']}"
+
+        meta   = pod_data.get("metadata", {})
+        spec   = pod_data.get("spec", {})
+        status = pod_data.get("status", {})
+
+        lines = [
+            f"Name:       {meta.get('name','?')}",
+            f"Namespace:  {meta.get('namespace','?')}",
+            f"Node:       {spec.get('nodeName','?')}",
+            f"Phase:      {status.get('phase','?')}",
+            f"Pod IP:     {status.get('podIP','?')}",
+            f"Host IP:    {status.get('hostIP','?')}",
+            f"Start Time: {meta.get('creationTimestamp','?')}",
+            f"Labels:     {', '.join(f'{k}={v}' for k, v in meta.get('labels', {}).items()) or '<none>'}",
         ]
-        for cs in status.get("containerStatuses", []):
-            state = list(cs.get("state", {}).keys())
-            lines.append(
-                f"  {cs.get('name','?')}: ready={cs.get('ready')}  "
-                f"restarts={cs.get('restartCount',0)}  state={state}"
+
+        # QoS class
+        if status.get("qosClass"):
+            lines.append(f"QoS Class:  {status['qosClass']}")
+
+        # Containers
+        container_specs = {c["name"]: c for c in spec.get("containers", [])}
+        container_statuses = {cs["name"]: cs for cs in status.get("containerStatuses", [])}
+        init_specs = {c["name"]: c for c in spec.get("initContainers", [])}
+        init_statuses = {cs["name"]: cs for cs in status.get("initContainerStatuses", [])}
+
+        def _fmt_container(cspec: dict, cstatus: dict) -> List[str]:
+            out = []
+            out.append(f"  Name:    {cspec.get('name','?')}")
+            out.append(f"  Image:   {cspec.get('image','?')}")
+
+            # Resource requests / limits
+            res = cspec.get("resources", {})
+            req = res.get("requests", {})
+            lim = res.get("limits", {})
+            if req or lim:
+                out.append(f"  Resources:")
+                if req:
+                    out.append(f"    Requests: cpu={req.get('cpu','?')}  memory={req.get('memory','?')}")
+                if lim:
+                    out.append(f"    Limits:   cpu={lim.get('cpu','?')}  memory={lim.get('memory','?')}")
+
+            # Ports
+            ports = cspec.get("ports", [])
+            if ports:
+                p_str = ", ".join(f"{p.get('containerPort','?')}/{p.get('protocol','TCP')}" for p in ports)
+                out.append(f"  Ports:   {p_str}")
+
+            # Current state
+            state = cstatus.get("state", {})
+            if state:
+                if "running" in state:
+                    started = state["running"].get("startedAt", "?")
+                    out.append(f"  State:   Running (started: {started})")
+                elif "waiting" in state:
+                    w = state["waiting"]
+                    out.append(f"  State:   Waiting")
+                    if w.get("reason"):
+                        out.append(f"    Reason:  {w['reason']}")
+                    if w.get("message"):
+                        out.append(f"    Message: {w['message']}")
+                elif "terminated" in state:
+                    t = state["terminated"]
+                    out.append(f"  State:   Terminated")
+                    if t.get("reason"):
+                        out.append(f"    Reason:    {t['reason']}")
+                    if t.get("message"):
+                        out.append(f"    Message:   {t['message']}")
+                    out.append(f"    Exit Code: {t.get('exitCode', '?')}")
+                    if t.get("startedAt"):
+                        out.append(f"    Started:   {t['startedAt']}")
+                    if t.get("finishedAt"):
+                        out.append(f"    Finished:  {t['finishedAt']}")
+
+            # Last (previous) state
+            last_state = cstatus.get("lastState", {})
+            if last_state.get("terminated"):
+                t = last_state["terminated"]
+                out.append(f"  Last State: Terminated")
+                if t.get("reason"):
+                    out.append(f"    Reason:    {t['reason']}")
+                if t.get("message"):
+                    out.append(f"    Message:   {t['message']}")
+                out.append(f"    Exit Code: {t.get('exitCode', '?')}")
+                if t.get("finishedAt"):
+                    out.append(f"    Finished:  {t['finishedAt']}")
+
+            out.append(f"  Ready:    {cstatus.get('ready', '?')}")
+            out.append(f"  Restarts: {cstatus.get('restartCount', 0)}")
+            return out
+
+        if init_specs:
+            lines.append("\nInit Containers:")
+            for name, cspec in init_specs.items():
+                cstatus = init_statuses.get(name, {})
+                lines.extend(_fmt_container(cspec, cstatus))
+
+        lines.append("\nContainers:")
+        for name, cspec in container_specs.items():
+            cstatus = container_statuses.get(name, {})
+            lines.extend(_fmt_container(cspec, cstatus))
+
+        # Conditions
+        conditions = status.get("conditions", [])
+        if conditions:
+            lines.append("\nConditions:")
+            for cond in conditions:
+                reason = f"  reason={cond['reason']}" if cond.get("reason") else ""
+                msg    = f"  message={cond['message']}" if cond.get("message") else ""
+                ctype  = str(cond.get("type") or "?")
+                cstat  = str(cond.get("status") or "?")
+                lines.append(f"  {ctype}: {cstat}{reason}{msg}")
+
+        # Volumes
+        volumes = spec.get("volumes", [])
+        if volumes:
+            lines.append("\nVolumes:")
+            for v in volumes[:10]:
+                vtype = next((k for k in v if k != "name"), "unknown")
+                lines.append(f"  {v.get('name','?')} ({vtype})")
+
+        # Tolerations
+        tolerations = spec.get("tolerations", [])
+        if tolerations:
+            lines.append(f"\nTolerations: {len(tolerations)} rule(s)")
+
+        # Events related to this pod
+        events = events_data.get("items", [])
+        if events:
+            # Sort by last timestamp descending
+            events_sorted = sorted(
+                events,
+                key=lambda e: e.get("lastTimestamp") or e.get("eventTime") or "",
+                reverse=True,
             )
-        for cond in status.get("conditions", []):
-            lines.append(
-                f"Condition {cond.get('type','?')}: {cond.get('status','?')}  "
-                f"reason={cond.get('reason','')}"
-            )
+            lines.append("\nEvents:")
+            lines.append(f"  {'Type':<10} {'Reason':<25} {'Age':<14} {'Message'}")
+            lines.append(f"  {'----':<10} {'------':<25} {'---':<14} {'-------'}")
+            for e in events_sorted[:15]:
+                etype  = str(e.get("type") or "?")
+                reason = str(e.get("reason") or "?")
+                age_raw = e.get("lastTimestamp") or e.get("firstTimestamp") or "?"
+                # Trim ISO timestamp to just the time portion for readability
+                age = str(age_raw)
+                if "T" in age:
+                    age = age.split("T")[-1].rstrip("Z")
+                msg = str(e.get("message") or "")[:120]
+                lines.append(f"  {etype:<10} {reason:<25} {age:<14} {msg}")
+        else:
+            lines.append("\nEvents:  <none>")
+
         return "\n".join(lines)
 
     def is_command_allowed(self, command: str) -> bool:
@@ -315,6 +522,98 @@ class OpenShiftClient:
         # Fallback: try apps group
         plural = kind_lower + "s"
         return (api_version, f"/apis/apps/v1{ns}/{plural}")
+
+    async def oc_scale(self, namespace: str, name: str, replicas: int) -> Dict[str, Any]:
+        """Scale a workload by running `oc scale` for each resource type in sequence.
+
+        Tries: deployment → deploymentconfig → replicationcontroller.
+        Returns the first success, or the last error if all fail.
+        """
+        import re as _re
+
+        resource_types = ["deployment", "deploymentconfig", "replicationcontroller", "statefulset"]
+        last_error = ""
+
+        for rtype in resource_types:
+            cmd = f"oc scale {rtype} {name} --replicas={replicas} -n {namespace}"
+
+            # Validate against whitelist before running
+            cmd_normalised = " ".join(cmd.split())
+            allowed = False
+            for pattern_tpl in self.ALLOWED_COMMANDS:
+                pat = pattern_tpl.replace("{namespace}", r"\S+") \
+                                 .replace("{name}", r"[\w-]+") \
+                                 .replace("{replicas}", r"\d+")
+                if _re.match(f"^{pat}$", cmd_normalised):
+                    allowed = True
+                    break
+            if not allowed:
+                continue  # should never happen given the whitelist above
+
+            try:
+                env = {"OC_TOKEN": self.token, "HOME": "/tmp"}
+                result = subprocess.run(
+                    ["oc", "scale", rtype, name, f"--replicas={replicas}", "-n", namespace,
+                     "--token", self.token, "--server", self.api_url,
+                     "--insecure-skip-tls-verify=true"],
+                    capture_output=True, text=True, timeout=30
+                )
+                stdout = result.stdout.strip()
+                stderr = result.stderr.strip()
+
+                if result.returncode == 0:
+                    # e.g. "deployment.apps/nginx scaled" or "replicationcontroller/nginx scaled"
+                    msg = stdout or f"{rtype}/{name} scaled to {replicas} replica(s)"
+                    return {"success": True, "message": msg, "resource_type": rtype, "replicas": replicas}
+
+                # "not found" means this resource type doesn't exist — try the next one
+                if "not found" in stderr.lower() or "NotFound" in stderr:
+                    last_error = stderr
+                    continue
+
+                # Any other error (permissions, etc.) — surface immediately
+                return {"success": False, "error": stderr or stdout}
+
+            except subprocess.TimeoutExpired:
+                return {"success": False, "error": f"oc scale timed out for {rtype}/{name}"}
+            except FileNotFoundError:
+                # `oc` binary not in PATH — fall back to API-based scaling
+                return await self._oc_scale_via_api(namespace, name, replicas)
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        return {"success": False, "error": last_error or f"No Deployment, DeploymentConfig or ReplicationController named '{name}' found in '{namespace}'"}
+
+    async def _oc_scale_via_api(self, namespace: str, name: str, replicas: int) -> Dict[str, Any]:
+        """API fallback when oc binary is not available: tries all three controller types."""
+        candidates = [
+            ("deployment",            f"/apis/apps/v1/namespaces/{namespace}/deployments/{name}/scale"),
+            ("deploymentconfig",      f"/apis/apps.openshift.io/v1/namespaces/{namespace}/deploymentconfigs/{name}/scale"),
+            ("replicationcontroller", f"/api/v1/namespaces/{namespace}/replicationcontrollers/{name}/scale"),
+            ("statefulset",           f"/apis/apps/v1/namespaces/{namespace}/statefulsets/{name}/scale"),
+        ]
+        patch = json.dumps({"spec": {"replicas": replicas}})
+        headers = dict(self.headers)
+        headers["Content-Type"] = "application/merge-patch+json"
+        last_error = ""
+        for rtype, path in candidates:
+            url = f"{self.api_url}{path}"
+            try:
+                async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                    resp = await client.patch(url, headers=headers, content=patch)
+                    if resp.status_code == 200:
+                        return {"success": True,
+                                "message": f"{rtype}/{name} scaled to {replicas} replica(s)",
+                                "resource_type": rtype, "replicas": replicas}
+                    if resp.status_code == 404:
+                        last_error = f"{rtype}/{name} not found"
+                        continue
+                    if resp.status_code in (401, 403):
+                        return {"success": False, "error": f"HTTP {resp.status_code}: insufficient permissions to scale {rtype}/{name} in {namespace}"}
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            except Exception as e:
+                last_error = str(e)
+        return {"success": False, "error": last_error or f"No scalable controller '{name}' found in '{namespace}'"}
 
     def execute_safe_command(self, command: str) -> str:
         """Execute a whitelisted oc command"""

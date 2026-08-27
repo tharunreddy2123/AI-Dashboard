@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Tuple
 import re
 import json
+import httpx
 import uvicorn
 
 from config import settings
@@ -58,6 +59,8 @@ class ActionRequest(BaseModel):
     namespace: Optional[str] = None
     replicas: Optional[int] = None
     manifest: Optional[Dict[str, Any]] = None
+    container: Optional[str] = None
+    tail_lines: Optional[int] = 0
 
 _DEFAULT_NAMESPACE = "tharunreddy-dev"
 
@@ -143,10 +146,11 @@ def _parse_action(msg: str) -> Optional[Dict[str, Any]]:
     return None
 
 async def _execute_action(act: Dict[str, Any]) -> Tuple[str, bool]:
-    action = act["action"]
-    kind   = act.get("kind", "")
-    name   = act.get("name", "")
-    ns     = act.get("namespace", _DEFAULT_NAMESPACE)
+    action    = act["action"]
+    kind      = act.get("kind", "")
+    name      = act.get("name", "")
+    ns        = act.get("namespace", _DEFAULT_NAMESPACE)
+    container = act.get("container")
     try:
         if action == "create":
             r = await openshift_client.create_resource(ns, act["manifest"])
@@ -174,10 +178,13 @@ async def _execute_action(act: Dict[str, Any]) -> Tuple[str, bool]:
             result = await openshift_client.describe_pod(ns, name)
             return (result, True)
         elif action == "logs":
-            result = await openshift_client.get_pod_logs(ns, name, tail_lines=50)
+            # tail_lines=0 means no limit (fetch all logs)
+            tail_lines_val = act.get("tail_lines")
+            tail = tail_lines_val if tail_lines_val is not None else 0
+            result = await openshift_client.get_pod_logs(ns, name, tail_lines=tail, container=container)
             if result.startswith("Error"):
                 return (result, False)
-            return (f"Logs for pod `{name}` in `{ns}`:\n```\n{result}\n```", True)
+            return (result or "(no log output)", True)
     except Exception as e:
         return (f"Error executing {action} {kind} `{name}`: {str(e)}", False)
     return ("Unknown action.", False)
@@ -355,7 +362,9 @@ async def quick_chat(request: ChatRequest):
 async def execute_action_direct(request: ActionRequest):
     try:
         act = {"action": request.action, "kind": request.kind, "name": request.name or "",
-               "namespace": request.namespace or _DEFAULT_NAMESPACE, "manifest": request.manifest, "replicas": request.replicas}
+               "namespace": request.namespace or _DEFAULT_NAMESPACE, "manifest": request.manifest,
+               "replicas": request.replicas, "container": request.container,
+               "tail_lines": request.tail_lines}
         summary, ok = await _execute_action(act)
         return {"result": summary, "success": ok}
     except Exception as e:
@@ -388,6 +397,73 @@ async def get_deployments(namespace: Optional[str] = None):
         return {"deployments": await openshift_client.get_deployments(namespace)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+class ScaleRequest(BaseModel):
+    name: str        # controller name (e.g. "nginx", "nginx2")
+    namespace: str
+    replicas: int    # absolute target replica count
+
+
+@app.post("/api/openshift/scale")
+async def scale_workload(request: ScaleRequest):
+    """Scale a workload to an exact replica count.
+
+    Equivalent to:  oc scale deployment <name> --replicas=<n> -n <namespace>
+
+    Tries deployment → deploymentconfig → replicationcontroller automatically.
+    Falls back to direct API patching when the oc binary is not available.
+    """
+    if request.replicas < 0:
+        raise HTTPException(status_code=400, detail="replicas must be >= 0")
+
+    result = await openshift_client.oc_scale(request.namespace, request.name, request.replicas)
+
+    if not result.get("success"):
+        err = result.get("error", "Scale failed")
+        status_code = 403 if "403" in str(err) else 404 if "not found" in err.lower() else 500
+        raise HTTPException(status_code=status_code, detail=err)
+
+    return {
+        "success": True,
+        "name": request.name,
+        "namespace": request.namespace,
+        "replicas": request.replicas,
+        "message": result.get("message", f"Scaled to {request.replicas} replica(s)"),
+        "resource_type": result.get("resource_type", "deployment"),
+    }
+
+@app.get("/api/openshift/pod-owner")
+async def get_pod_owner(pod_name: str, namespace: str):
+    """Return the owner references of a pod so the frontend can determine the correct controller."""
+    data = await openshift_client._api_request(
+        f"/api/v1/namespaces/{namespace}/pods/{pod_name}"
+    )
+    err = data.get("error", "")
+    if "403" in str(err):
+        raise HTTPException(status_code=403, detail=f"No pod read access in namespace '{namespace}'")
+    if err or not data.get("metadata"):
+        raise HTTPException(status_code=404, detail=f"Pod '{pod_name}' not found in namespace '{namespace}'")
+    owners = data.get("metadata", {}).get("ownerReferences", [])
+    return {"pod": pod_name, "namespace": namespace, "ownerReferences": owners}
+
+@app.get("/api/openshift/deployment-replicas")
+async def get_deployment_replicas(name: str, namespace: str):
+    """Return the current replica count for a deployment.
+    Returns HTTP 403 when the token lacks permission (used by the frontend permission probe).
+    Returns HTTP 404 when the deployment simply does not exist.
+    """
+    data = await openshift_client._api_request(
+        f"/apis/apps/v1/namespaces/{namespace}/deployments/{name}"
+    )
+    err = data.get("error", "")
+    if "403" in str(err):
+        raise HTTPException(status_code=403, detail=f"No deployment read access in namespace '{namespace}'")
+    if err:
+        # Any other error (404, connection, etc.) — treat as "namespace is accessible but deployment missing"
+        raise HTTPException(status_code=404, detail=str(err))
+    replicas = data.get("spec", {}).get("replicas", 0)
+    ready    = data.get("status", {}).get("readyReplicas", 0)
+    return {"name": name, "namespace": namespace, "replicas": replicas, "ready_replicas": ready}
 
 @app.get("/api/openshift/events")
 async def get_events(namespace: Optional[str] = None):
