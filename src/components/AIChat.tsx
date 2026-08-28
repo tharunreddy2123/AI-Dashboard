@@ -132,8 +132,8 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: error instanceof Error
-          ? `Error: ${error.message}. Please ensure the backend server is running on http://localhost:8001`
-          : 'Sorry, I encountered an error. Please ensure the backend server is accessible.',
+          ? `Error: ${error.message}`
+          : 'Sorry, I encountered an error. Please check the backend is running.',
         timestamp: new Date(),
       }]);
     } finally {
@@ -166,7 +166,7 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
                 OpenShift AI Assistant
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {provider === 'ica' ? 'Powered by IBM Consulting Advantage' : 'Powered by IBM watsonx.ai'}
+                {provider === 'ica' ? 'Powered by ICA' : 'Powered by IBM watsonx.ai'}
               </p>
             </div>
           </div>
