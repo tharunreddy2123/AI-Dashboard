@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, Loader2, Sparkles, X, Activity, Server, Box, AlertTriangle, Layers } from 'lucide-react';
-import { apiClient } from '../lib/api-client';
+import { BACKEND_URL, fetchWithRetry } from '../lib/api-client';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -65,11 +65,14 @@ const SUGGESTION_GROUPS = [
   { icon: AlertTriangle, label: 'Failed deployments',        query: 'Show failed or degraded deployments' },
 ];
 
+type AIProvider = 'watsonx' | 'ica';
+
 export default function AIChat({ isOpen, onClose }: AIChatProps) {
+  const [provider, setProvider] = useState<AIProvider>('watsonx');
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Hello! I\'m your OpenShift AI assistant powered by IBM watsonx.ai.\n\nI am connected to your live cluster and can:\n\n• Show pods, nodes, deployments, events and namespaces\n• Diagnose CrashLoopBackOff, OOMKilled, Pending pods\n• Analyze cluster health with AI insights\n• Explain warning events and suggest fixes\n• Answer any OpenShift / Kubernetes question\n\nPick a quick action below or type your question.',
+      content: 'Hello! I\'m your OpenShift AI assistant.\n\nI am connected to your live cluster and can:\n\n• Show pods, nodes, deployments, events and namespaces\n• Diagnose CrashLoopBackOff, OOMKilled, Pending pods\n• Analyze cluster health with AI insights\n• Explain warning events and suggest fixes\n• Answer any OpenShift / Kubernetes question\n\nPick a quick action below or type your question.',
       timestamp: new Date()
     }
   ]);
@@ -102,7 +105,22 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
         content: m.content,
       }));
 
-      const data = await apiClient.chat(messageText, conversationHistory, true);
+      // Route to the correct backend endpoint based on selected provider
+      const endpoint = provider === 'ica' ? '/api/chat/ica' : '/api/chat';
+      const response = await fetchWithRetry(`${BACKEND_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: messageText,
+          conversation_history: conversationHistory,
+          include_context: true,
+        }),
+      }, { timeout: 120000 });
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Chat request failed: ${err}`);
+      }
+      const data = await response.json();
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.response,
@@ -148,16 +166,41 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
                 OpenShift AI Assistant
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Powered by IBM watsonx.ai
+                {provider === 'ica' ? 'Powered by IBM Consulting Advantage' : 'Powered by IBM watsonx.ai'}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          </button>
+          <div className="flex items-center gap-3">
+            {/* AI Provider toggle */}
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+              <button
+                onClick={() => setProvider('watsonx')}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  provider === 'watsonx'
+                    ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                watsonx
+              </button>
+              <button
+                onClick={() => setProvider('ica')}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  provider === 'ica'
+                    ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-400 shadow-sm'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                }`}
+              >
+                ICA
+              </button>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </button>
+          </div>
         </div>
 
         {/* Messages */}

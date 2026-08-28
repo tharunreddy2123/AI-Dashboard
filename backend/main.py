@@ -9,7 +9,8 @@ import uvicorn
 
 from config import settings
 from openshift_client import openshift_client
-from watsonx_client import watsonx_client as ica_client
+from watsonx_client import watsonx_client
+from ica_client import ica_client
 
 try:
     from rag_system import rag_system
@@ -286,11 +287,73 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    ai_healthy = await ica_client.check_health()
-    rag_status = "healthy" if RAG_AVAILABLE else "unavailable"
-    rag_docs   = rag_system.get_stats()["total_documents"] if RAG_AVAILABLE else 0
-    return {"api": "healthy", "watsonx_ai": "healthy" if ai_healthy else "unavailable",
-            "model": settings.watsonx_model, "rag_system": rag_status, "knowledge_base_docs": rag_docs}
+    wx_healthy  = await watsonx_client.check_health()
+    ica_healthy = await ica_client.check_health()
+    rag_status  = "healthy" if RAG_AVAILABLE else "unavailable"
+    rag_docs    = rag_system.get_stats()["total_documents"] if RAG_AVAILABLE else 0
+    return {
+        "api": "healthy",
+        "watsonx_ai": "healthy" if wx_healthy else "unavailable",
+        "ica": "healthy" if ica_healthy else ("unconfigured" if not settings.ica_api_key else "unavailable"),
+        "model": settings.watsonx_model,
+        "rag_system": rag_status,
+        "knowledge_base_docs": rag_docs,
+    }
+
+@app.post("/api/chat/ica", response_model=ChatResponse)
+async def chat_ica(request: ChatRequest):
+    """Chat endpoint that uses IBM Consulting Advantage (ICA) instead of watsonx.ai."""
+    if not settings.ica_api_key:
+        raise HTTPException(status_code=503, detail="ICA_API_KEY is not configured on the server.")
+    try:
+        intents = _detect_intents(request.message)
+        context_parts: List[str] = []
+        action_summary = None
+        action_success = None
+
+        parsed_action = _parse_action(request.message)
+        if parsed_action:
+            summary, ok = await _execute_action(parsed_action)
+            action_summary = summary
+            action_success = ok
+            context_parts.append(
+                f"CLUSTER ACTION EXECUTED:\n"
+                f"  Action  : {parsed_action['action'].upper()} {parsed_action['kind']}\n"
+                f"  Target  : {parsed_action.get('name','?')} in {parsed_action.get('namespace','?')}\n"
+                f"  Result  : {'SUCCESS' if ok else 'FAILED'} - {summary}"
+            )
+            intents.update({"pods", "namespaces"})
+
+        if request.include_context and RAG_AVAILABLE and intents:
+            rag_ctx = rag_system.get_relevant_context(request.message, max_results=2)
+            if rag_ctx:
+                context_parts.append(f"RUNBOOK CONTEXT:\n{rag_ctx}")
+
+        if intents:
+            cluster_ctx = await _build_cluster_context(intents)
+            if cluster_ctx == "TOKEN_EXPIRED":
+                return ChatResponse(
+                    response="⚠️ **OpenShift token expired.** Update it via the Token button in the header.",
+                    action_performed=None, action_success=None, context_used=None
+                )
+            if cluster_ctx:
+                context_parts.append(cluster_ctx)
+
+        context = "\n\n".join(context_parts) if context_parts else None
+        history = None
+        if request.conversation_history:
+            history = [{"role": m.role, "content": m.content} for m in request.conversation_history]
+
+        response = await ica_client.answer_question(
+            question=request.message, context=context, conversation_history=history)
+
+        return ChatResponse(response=response, action_performed=action_summary,
+                            action_success=action_success, context_used=context if context else None)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -342,7 +405,7 @@ async def chat(request: ChatRequest):
         if request.conversation_history:
             history = [{"role": m.role, "content": m.content} for m in request.conversation_history]
 
-        response = await ica_client.answer_question(
+        response = await watsonx_client.answer_question(
             question=request.message, context=context, conversation_history=history)
 
         return ChatResponse(response=response, action_performed=action_summary,
@@ -353,7 +416,7 @@ async def chat(request: ChatRequest):
 @app.post("/api/chat/quick")
 async def quick_chat(request: ChatRequest):
     try:
-        response = await ica_client.answer_question(question=request.message)
+        response = await watsonx_client.answer_question(question=request.message)
         return {"response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -476,7 +539,7 @@ async def get_events(namespace: Optional[str] = None):
 async def get_cluster_health():
     try:
         health_data = await openshift_client.get_cluster_health()
-        ai_analysis = await ica_client.analyze_cluster_health(health_data)
+        ai_analysis = await watsonx_client.analyze_cluster_health(health_data)
         return ClusterHealthResponse(health_data=health_data, ai_analysis=ai_analysis)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -485,7 +548,7 @@ async def get_cluster_health():
 async def analyze_logs(request: AnalyzeLogsRequest):
     try:
         logs = await openshift_client.get_pod_logs(request.namespace, request.pod_name)
-        analysis = await ica_client.analyze_logs(logs, f"Pod: {request.pod_name} ns: {request.namespace}")
+        analysis = await watsonx_client.analyze_logs(logs, f"Pod: {request.pod_name} ns: {request.namespace}")
         return {"logs": logs, "analysis": analysis}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -493,7 +556,7 @@ async def analyze_logs(request: AnalyzeLogsRequest):
 @app.post("/api/analyze/event")
 async def analyze_event(event: Dict[str, Any]):
     try:
-        return {"explanation": await ica_client.explain_event(event)}
+        return {"explanation": await watsonx_client.explain_event(event)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

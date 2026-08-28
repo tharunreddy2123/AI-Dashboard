@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     watsonx_project_id: str = ""
     watsonx_model: str = "meta-llama/llama-3-3-70b-instruct"
 
+    # IBM Consulting Advantage (ICA) Configuration
+    ica_api_key: str = ""
+
     # ChromaDB Configuration
     chroma_persist_dir: str = "./chroma_db"
 
