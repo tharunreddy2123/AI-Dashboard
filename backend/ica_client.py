@@ -21,8 +21,8 @@ _SYSTEM_INSTRUCTION = (
 _ICA_BASE_URL = "https://api.nextgen-beta.ica.ibm.com/ica/v1"
 
 
-# ICA model — from the ICA portal Models page
-_ICA_MODEL = "anthropic/claude-3-5-sonnet"
+# ICA model — from the ICA portal Global Models page (Llama4 Maverick 17b Instruct)
+_ICA_MODEL = "meta-llama/llama-4-maverick-17b-128e-instruct-fp8"
 
 class ICAClient:
     """Client for IBM Consulting Advantage (ICA) chat API."""
