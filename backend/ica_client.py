@@ -55,8 +55,7 @@ class ICAClient:
                 f"{self.base_url}/chat/completions",
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"apikey {self.api_key}",
-                    "X-IBM-Client-Id": self.api_key,
+                    "Authorization": f"Bearer {self.api_key}",
                 },
                 json=payload,
             )
@@ -140,8 +139,7 @@ class ICAClient:
                 response = await client.get(
                     f"{self.base_url}/models",
                     headers={
-                        "Authorization": f"apikey {self.api_key}",
-                        "X-IBM-Client-Id": self.api_key,
+                        "Authorization": f"Bearer {self.api_key}",
                     },
                 )
                 return response.status_code in (200, 401, 403)  # reachable = healthy enough
