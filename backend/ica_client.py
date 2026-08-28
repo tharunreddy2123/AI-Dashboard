@@ -21,12 +21,16 @@ _SYSTEM_INSTRUCTION = (
 _ICA_BASE_URL = "https://api.nextgen-beta.ica.ibm.com/ica/v1"
 
 
+# ICA model — from the ICA portal Models page
+_ICA_MODEL = "anthropic/claude-3-5-sonnet"
+
 class ICAClient:
     """Client for IBM Consulting Advantage (ICA) chat API."""
 
     def __init__(self):
-        self.api_key = settings.ica_api_key
+        self.api_key  = settings.ica_api_key
         self.base_url = _ICA_BASE_URL
+        self.model    = settings.ica_model
 
         if not self.api_key:
             print("WARNING: ICA_API_KEY is not set in backend/.env — ICA calls will be skipped")
@@ -45,9 +49,10 @@ class ICAClient:
             raise ValueError("ICA_API_KEY is not configured")
 
         payload = {
-            "messages": messages,
+            "model":       self.model,
+            "messages":    messages,
             "temperature": temperature,
-            "max_tokens": 400,
+            "max_tokens":  400,
         }
 
         async with httpx.AsyncClient(timeout=120) as client:

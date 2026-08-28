@@ -16,6 +16,7 @@ class Settings(BaseSettings):
 
     # IBM Consulting Advantage (ICA) Configuration
     ica_api_key: str = ""
+    ica_model: str = "anthropic/claude-3-5-sonnet"
 
     # ChromaDB Configuration
     chroma_persist_dir: str = "./chroma_db"
