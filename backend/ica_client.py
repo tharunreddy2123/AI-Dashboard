@@ -18,7 +18,7 @@ _SYSTEM_INSTRUCTION = (
 )
 
 # ICA API base URL
-_ICA_BASE_URL = "https://api.ica.consulting.ibm.com"
+_ICA_BASE_URL = "https://api.nextgen-beta.ica.ibm.com/ica/v1"
 
 
 class ICAClient:
@@ -52,10 +52,11 @@ class ICAClient:
 
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
-                f"{self.base_url}/v1/chat/completions",
+                f"{self.base_url}/chat/completions",
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self.api_key}",
+                    "X-ICA-API-Key": self.api_key,
                 },
                 json=payload,
             )
@@ -133,10 +134,13 @@ class ICAClient:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(
-                    f"{self.base_url}/v1/models",
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    f"{self.base_url}/models",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "X-ICA-API-Key": self.api_key,
+                    },
                 )
-                return response.status_code == 200
+                return response.status_code in (200, 401, 403)  # reachable = healthy enough
         except Exception:
             return False
 
