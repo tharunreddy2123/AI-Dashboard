@@ -55,11 +55,15 @@ class ICAClient:
                 f"{self.base_url}/chat/completions",
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.api_key}",
-                    "X-ICA-API-Key": self.api_key,
+                    "Authorization": f"apikey {self.api_key}",
+                    "X-IBM-Client-Id": self.api_key,
                 },
                 json=payload,
             )
+            # surface auth errors clearly instead of raising
+            if response.status_code == 401:
+                body = response.text[:300]
+                raise ValueError(f"ICA authentication failed (401). Response: {body}")
             response.raise_for_status()
             data = response.json()
             # ICA follows OpenAI-compatible response shape
@@ -136,8 +140,8 @@ class ICAClient:
                 response = await client.get(
                     f"{self.base_url}/models",
                     headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "X-ICA-API-Key": self.api_key,
+                        "Authorization": f"apikey {self.api_key}",
+                        "X-IBM-Client-Id": self.api_key,
                     },
                 )
                 return response.status_code in (200, 401, 403)  # reachable = healthy enough
