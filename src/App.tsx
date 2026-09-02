@@ -6,6 +6,7 @@ import Namespaces from './pages/Namespaces';
 import Pods from './pages/Pods';
 import Deployments from './pages/Deployments';
 import Nodes from './pages/Nodes';
+import Actions from './pages/Actions';
 import Logs from './pages/Logs';
 import Alerts from './pages/Alerts';
 
@@ -20,6 +21,7 @@ function App() {
             <Route path="/pods" element={<Pods />} />
             <Route path="/deployments" element={<Deployments />} />
             <Route path="/nodes" element={<Nodes />} />
+            <Route path="/actions" element={<Actions />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/alerts" element={<Alerts />} />
           </Route>

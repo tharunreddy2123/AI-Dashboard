@@ -6,6 +6,7 @@ import {
   Container,
   Rocket,
   Server,
+  Zap,
   FileText,
   Bot,
   Bell,
@@ -23,6 +24,7 @@ const navItems = [
   { to: '/pods', icon: Container, label: 'Pods' },
   { to: '/deployments', icon: Rocket, label: 'Deployments' },
   { to: '/nodes', icon: Server, label: 'Nodes' },
+  { to: '/actions', icon: Zap, label: 'Actions' },
   { to: '/logs', icon: FileText, label: 'Logs' },
   { to: '/alerts', icon: Bell, label: 'Alerts' },
 ];
