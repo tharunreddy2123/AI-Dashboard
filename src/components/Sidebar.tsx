@@ -82,6 +82,25 @@ export default function Sidebar({ onOpenChat }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
+        {/* AI Assistant — pinned to top */}
+        <button
+          onClick={onOpenChat}
+          title="AI Assistant"
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ${
+            isDark
+              ? 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+          } ${collapsed ? 'justify-center' : ''}`}
+        >
+          <Sparkles size={18} className="flex-shrink-0" />
+          {!collapsed && <span>AI Assistant</span>}
+          <span
+            className={`w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0 ${
+              collapsed ? 'absolute top-1.5 right-1.5' : 'ml-auto'
+            }`}
+          />
+        </button>
+
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
@@ -102,25 +121,6 @@ export default function Sidebar({ onOpenChat }: SidebarProps) {
             {!collapsed && <span>{label}</span>}
           </NavLink>
         ))}
-
-        {/* AI Assistant — same style as nav items */}
-        <button
-          onClick={onOpenChat}
-          title="AI Assistant"
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ${
-            isDark
-              ? 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-          } ${collapsed ? 'justify-center' : ''}`}
-        >
-          <Sparkles size={18} className="flex-shrink-0" />
-          {!collapsed && <span>AI Assistant</span>}
-          <span
-            className={`w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0 ${
-              collapsed ? 'absolute top-1.5 right-1.5' : 'ml-auto'
-            }`}
-          />
-        </button>
       </nav>
 
       {/* Bottom */}
