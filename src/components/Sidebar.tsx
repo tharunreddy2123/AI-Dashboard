@@ -30,6 +30,8 @@ const navItems = [
   { to: '/alerts', icon: Bell, label: 'Alerts' },
 ];
 
+// AI Chat is rendered as a button that mimics a nav item but opens a modal
+
 interface SidebarProps {
   onOpenChat: () => void;
 }
@@ -100,24 +102,26 @@ export default function Sidebar({ onOpenChat }: SidebarProps) {
             {!collapsed && <span>{label}</span>}
           </NavLink>
         ))}
-      </nav>
 
-      {/* AI Chat */}
-      <div className={`px-3 pb-2`}>
+        {/* AI Assistant — same style as nav items */}
         <button
           onClick={onOpenChat}
+          title="AI Assistant"
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ${
             isDark
-              ? 'text-blue-400 hover:bg-blue-500/10'
-              : 'text-blue-600 hover:bg-blue-50'
+              ? 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
           } ${collapsed ? 'justify-center' : ''}`}
-          title="AI Assistant"
         >
           <Sparkles size={18} className="flex-shrink-0" />
           {!collapsed && <span>AI Assistant</span>}
-          <span className={`w-2 h-2 bg-green-500 rounded-full animate-pulse ${collapsed ? 'absolute top-1.5 right-1.5' : 'ml-auto'}`}></span>
+          <span
+            className={`w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0 ${
+              collapsed ? 'absolute top-1.5 right-1.5' : 'ml-auto'
+            }`}
+          />
         </button>
-      </div>
+      </nav>
 
       {/* Bottom */}
       <div className={`px-3 py-4 space-y-2 border-t ${isDark ? 'border-white/[0.06]' : 'border-gray-200'}`}>
