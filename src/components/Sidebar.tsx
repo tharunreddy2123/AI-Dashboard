@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Search,
+  Sparkles,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -29,7 +30,11 @@ const navItems = [
   { to: '/alerts', icon: Bell, label: 'Alerts' },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  onOpenChat: () => void;
+}
+
+export default function Sidebar({ onOpenChat }: SidebarProps) {
   const { isDark, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -48,7 +53,7 @@ export default function Sidebar() {
         {!collapsed && (
           <div className="overflow-hidden">
             <h1 className={`text-sm font-bold tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Tharun AI Ops
+              IBM
             </h1>
             <p className={`text-[10px] ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Intelligent Operations</p>
           </div>
@@ -96,6 +101,23 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {/* AI Chat */}
+      <div className={`px-3 pb-2`}>
+        <button
+          onClick={onOpenChat}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ${
+            isDark
+              ? 'text-blue-400 hover:bg-blue-500/10'
+              : 'text-blue-600 hover:bg-blue-50'
+          } ${collapsed ? 'justify-center' : ''}`}
+          title="AI Assistant"
+        >
+          <Sparkles size={18} className="flex-shrink-0" />
+          {!collapsed && <span>AI Assistant</span>}
+          <span className={`w-2 h-2 bg-green-500 rounded-full animate-pulse ${collapsed ? 'absolute top-1.5 right-1.5' : 'ml-auto'}`}></span>
+        </button>
+      </div>
 
       {/* Bottom */}
       <div className={`px-3 py-4 space-y-2 border-t ${isDark ? 'border-white/[0.06]' : 'border-gray-200'}`}>
