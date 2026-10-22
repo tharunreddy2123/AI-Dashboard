@@ -51,10 +51,6 @@ export default function Header() {
 
   const saveToken = async () => {
     const t = tokenInput.trim();
-    if (!t.startsWith('sha256~')) {
-      setTokenMsg({ ok: false, text: 'Token must start with sha256~' });
-      return;
-    }
     setTokenSaving(true);
     setTokenMsg(null);
     try {
@@ -185,7 +181,7 @@ export default function Header() {
               <ol className={`space-y-1.5 text-xs leading-relaxed ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                 <li>1. Go to your <a href="https://console.apps.rm3.7wse.p1.openshiftapps.com" target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">OpenShift Console</a></li>
                 <li>2. Click your username (top-right) → <strong className={isDark ? 'text-gray-200' : 'text-gray-700'}>Copy login command</strong> → <strong className={isDark ? 'text-gray-200' : 'text-gray-700'}>Display Token</strong></li>
-                <li>3. Copy the <code className="px-1 py-0.5 rounded bg-white/10 font-mono">sha256~…</code> token and paste it below</li>
+                <li>3. Copy the token and paste it below</li>
               </ol>
 
               <div className={`relative flex items-center rounded-lg border ${isDark ? 'bg-white/[0.04] border-white/[0.08]' : 'bg-gray-50 border-gray-200'}`}>
@@ -193,7 +189,7 @@ export default function Header() {
                   type={tokenVisible ? 'text' : 'password'}
                   value={tokenInput}
                   onChange={e => setTokenInput(e.target.value)}
-                  placeholder="sha256~..."
+                  placeholder="Paste your token here..."
                   autoComplete="off"
                   className={`flex-1 bg-transparent px-3 py-2.5 text-xs font-mono outline-none ${isDark ? 'text-white placeholder-gray-600' : 'text-gray-900 placeholder-gray-400'}`}
                 />
