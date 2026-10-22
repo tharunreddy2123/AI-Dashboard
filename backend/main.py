@@ -638,6 +638,166 @@ async def test_watsonx():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# ─── ServiceNow Incidents ────────────────────────────────────────────────────
+
+class IncidentModel(BaseModel):
+    id: str
+    number: str
+    short_description: str
+    description: str
+    severity: str
+    priority: str
+    state: str
+    category: str
+    subcategory: str
+    affected_service: str
+    namespace: Optional[str] = None
+    pod_name: Optional[str] = None
+    node_name: Optional[str] = None
+    assigned_to: str
+    opened_at: str
+    updated_at: str
+    resolved_at: Optional[str] = None
+    source: str = "Mock"
+
+import datetime as _dt
+
+def _iso(delta_seconds: int) -> str:
+    return (_dt.datetime.utcnow() - _dt.timedelta(seconds=delta_seconds)).isoformat() + "Z"
+
+_MOCK_INCIDENTS: List[Dict[str, Any]] = [
+    {
+        "id": "1", "number": "INC0001234",
+        "short_description": "Pod CrashLoopBackOff in production namespace",
+        "description": "Multiple pods in the production namespace are entering CrashLoopBackOff state. Application logs show OOMKilled errors. The issue started approximately 2 hours ago after a deployment update.",
+        "severity": "1", "priority": "Critical", "state": "In Progress",
+        "category": "Infrastructure", "subcategory": "Kubernetes",
+        "affected_service": "payment-service", "namespace": "production",
+        "pod_name": "payment-service-7d9f8b-xkp2m", "node_name": None,
+        "assigned_to": "Platform Team",
+        "opened_at": _iso(7200), "updated_at": _iso(1800), "resolved_at": None, "source": "Mock",
+    },
+    {
+        "id": "2", "number": "INC0001235",
+        "short_description": "Node NotReady — worker-node-03 unresponsive",
+        "description": "worker-node-03 has been in NotReady state for 15 minutes. All pods scheduled on this node are being evicted. Root cause unknown — kubelet may have crashed or network is partitioned.",
+        "severity": "1", "priority": "Critical", "state": "New",
+        "category": "Infrastructure", "subcategory": "Node",
+        "affected_service": "cluster-infrastructure", "namespace": None,
+        "pod_name": None, "node_name": "worker-node-03",
+        "assigned_to": "SRE Team",
+        "opened_at": _iso(900), "updated_at": _iso(600), "resolved_at": None, "source": "Mock",
+    },
+    {
+        "id": "3", "number": "INC0001236",
+        "short_description": "Deployment rollout stuck — auth-service 0/3 ready",
+        "description": "The auth-service deployment has been stuck for 30 minutes with 0/3 replicas ready. Image pull errors are observed. The new container image v2.4.1 may have an issue or the registry credentials have expired.",
+        "severity": "2", "priority": "High", "state": "In Progress",
+        "category": "Deployment", "subcategory": "Image Pull",
+        "affected_service": "auth-service", "namespace": "tharunreddy-dev",
+        "pod_name": "auth-service-6f4b9c-lmn45", "node_name": None,
+        "assigned_to": "Dev Team",
+        "opened_at": _iso(3600), "updated_at": _iso(900), "resolved_at": None, "source": "Mock",
+    },
+    {
+        "id": "4", "number": "INC0001237",
+        "short_description": "High memory usage on namespace tharunreddy-dev",
+        "description": "Memory utilisation in tharunreddy-dev has exceeded 90% of allocated quota. Several pods are being OOMKilled. Resource limits may need to be increased or a memory leak needs to be investigated.",
+        "severity": "2", "priority": "High", "state": "New",
+        "category": "Performance", "subcategory": "Memory",
+        "affected_service": "multiple", "namespace": "tharunreddy-dev",
+        "pod_name": None, "node_name": None,
+        "assigned_to": "Platform Team",
+        "opened_at": _iso(5400), "updated_at": _iso(1200), "resolved_at": None, "source": "Mock",
+    },
+    {
+        "id": "5", "number": "INC0001238",
+        "short_description": "PVC mount failure — database pod pending",
+        "description": "The database pod cannot start because the Persistent Volume Claim is stuck in Pending state. StorageClass provisioner may have an issue or there is insufficient storage capacity.",
+        "severity": "3", "priority": "Medium", "state": "On Hold",
+        "category": "Storage", "subcategory": "PVC",
+        "affected_service": "postgres-db", "namespace": "tharunreddy-dev",
+        "pod_name": None, "node_name": None,
+        "assigned_to": "Storage Team",
+        "opened_at": _iso(14400), "updated_at": _iso(3600), "resolved_at": None, "source": "Mock",
+    },
+    {
+        "id": "6", "number": "INC0001233",
+        "short_description": "CPU throttling on api-gateway — latency spike",
+        "description": "The api-gateway service is experiencing severe CPU throttling, causing P99 latency to spike above 5 seconds. CPU limits may be too restrictive or there is an unexpected traffic surge.",
+        "severity": "2", "priority": "High", "state": "Resolved",
+        "category": "Performance", "subcategory": "CPU",
+        "affected_service": "api-gateway", "namespace": "production",
+        "pod_name": None, "node_name": None,
+        "assigned_to": "SRE Team",
+        "opened_at": _iso(86400), "updated_at": _iso(43200), "resolved_at": _iso(43200), "source": "Mock",
+    },
+]
+
+@app.get("/api/incidents")
+async def get_incidents(state: Optional[str] = None, severity: Optional[str] = None):
+    """
+    Return incidents list.
+    In production, replace _MOCK_INCIDENTS with a real ServiceNow REST API call:
+      GET https://<instance>.service-now.com/api/now/table/incident
+    """
+    incidents = list(_MOCK_INCIDENTS)
+    if state:
+        incidents = [i for i in incidents if i["state"].lower() == state.lower()]
+    if severity:
+        incidents = [i for i in incidents if i["severity"] == severity]
+    return {"incidents": incidents, "total": len(incidents), "source": "mock"}
+
+@app.post("/api/incidents/{incident_id}/analyze")
+async def analyze_incident(incident_id: str):
+    """
+    Trigger AI-powered RCA for a specific incident.
+    Fetches live cluster context for the affected namespace/pod and returns
+    a structured RCA + remediation from the AI.
+    """
+    incident = next((i for i in _MOCK_INCIDENTS if i["id"] == incident_id), None)
+    if not incident:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+
+    # Build targeted RCA prompt
+    prompt_parts = [
+        f"Perform a Root Cause Analysis (RCA) for this incident:",
+        f"Incident: {incident['number']} — {incident['short_description']}",
+        f"Severity: {incident['priority']} (SEV{incident['severity']})",
+        f"Description: {incident['description']}",
+    ]
+    if incident.get("namespace"):
+        prompt_parts.append(f"Affected namespace: {incident['namespace']}")
+    if incident.get("pod_name"):
+        prompt_parts.append(f"Affected pod: {incident['pod_name']}")
+    if incident.get("node_name"):
+        prompt_parts.append(f"Affected node: {incident['node_name']}")
+
+    prompt_parts += [
+        "",
+        "Please:",
+        "1. Investigate the cluster (pods, events, logs, deployments)",
+        "2. Identify the root cause",
+        "3. Provide a detailed RCA",
+        "4. List step-by-step remediation actions",
+        "5. Suggest preventive measures",
+    ]
+    prompt = "\n".join(prompt_parts)
+
+    intents = {"pods", "events", "health", "namespaces"}
+    if incident.get("namespace"):
+        intents.add("deployments")
+
+    cluster_ctx = await _build_cluster_context(intents)
+    context = cluster_ctx if cluster_ctx and cluster_ctx != "TOKEN_EXPIRED" else None
+
+    try:
+        response = await watsonx_client.answer_question(question=prompt, context=context)
+        return {"incident_id": incident_id, "number": incident["number"], "rca": response}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host=settings.api_host, port=settings.api_port, reload=True)
 

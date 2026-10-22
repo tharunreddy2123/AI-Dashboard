@@ -16,11 +16,13 @@ import {
   ChevronRight,
   Search,
   Sparkles,
+  Siren,
 } from 'lucide-react';
 import { useState } from 'react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/incidents', icon: Siren, label: 'Incidents' },
   { to: '/namespaces', icon: Boxes, label: 'Namespaces' },
   { to: '/pods', icon: Container, label: 'Pods' },
   { to: '/deployments', icon: Rocket, label: 'Deployments' },
@@ -30,13 +32,7 @@ const navItems = [
   { to: '/alerts', icon: Bell, label: 'Alerts' },
 ];
 
-// AI Chat is rendered as a button that mimics a nav item but opens a modal
-
-interface SidebarProps {
-  onOpenChat: () => void;
-}
-
-export default function Sidebar({ onOpenChat }: SidebarProps) {
+export default function Sidebar() {
   const { isDark, toggle } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -82,15 +78,21 @@ export default function Sidebar({ onOpenChat }: SidebarProps) {
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-2 space-y-0.5 overflow-y-auto">
-        {/* AI Assistant — pinned to top */}
-        <button
-          onClick={onOpenChat}
+        {/* AI Assistant — NavLink, same as all other items */}
+        <NavLink
+          to="/ai-assistant"
           title="AI Assistant"
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ${
-            isDark
-              ? 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
-              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-          } ${collapsed ? 'justify-center' : ''}`}
+          className={({ isActive }) =>
+            `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 relative ${
+              isActive
+                ? isDark
+                  ? 'bg-blue-500/10 text-blue-400'
+                  : 'bg-blue-50 text-blue-600'
+                : isDark
+                  ? 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            } ${collapsed ? 'justify-center' : ''}`
+          }
         >
           <Sparkles size={18} className="flex-shrink-0" />
           {!collapsed && <span>AI Assistant</span>}
@@ -99,7 +101,7 @@ export default function Sidebar({ onOpenChat }: SidebarProps) {
               collapsed ? 'absolute top-1.5 right-1.5' : 'ml-auto'
             }`}
           />
-        </button>
+        </NavLink>
 
         {navItems.map(({ to, icon: Icon, label }) => (
           <NavLink

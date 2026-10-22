@@ -13,6 +13,7 @@ interface Message {
 interface AIChatProps {
   isOpen: boolean;
   onClose: () => void;
+  initialMessage?: string;
 }
 
 // Render assistant message with basic markdown-like formatting
@@ -67,19 +68,18 @@ const SUGGESTION_GROUPS = [
 
 type AIProvider = 'watsonx' | 'ica';
 
-export default function AIChat({ isOpen, onClose }: AIChatProps) {
+const WELCOME_MESSAGE = 'Hello! I\'m your OpenShift AI assistant.\n\nI am connected to your live cluster and can:\n\n• Show pods, nodes, deployments, events and namespaces\n• Diagnose CrashLoopBackOff, OOMKilled, Pending pods\n• Analyze cluster health with AI insights\n• Explain warning events and suggest fixes\n• Provide RCA and remediation for ServiceNow incidents\n\nPick a quick action below or type your question.';
+
+export default function AIChat({ isOpen, onClose, initialMessage }: AIChatProps) {
   const [provider, setProvider] = useState<AIProvider>('watsonx');
   const [messages, setMessages] = useState<Message[]>([
-    {
-      role: 'assistant',
-      content: 'Hello! I\'m your OpenShift AI assistant.\n\nI am connected to your live cluster and can:\n\n• Show pods, nodes, deployments, events and namespaces\n• Diagnose CrashLoopBackOff, OOMKilled, Pending pods\n• Analyze cluster health with AI insights\n• Explain warning events and suggest fixes\n• Answer any OpenShift / Kubernetes question\n\nPick a quick action below or type your question.',
-      timestamp: new Date()
-    }
+    { role: 'assistant', content: WELCOME_MESSAGE, timestamp: new Date() }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const firedInitial = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -90,6 +90,20 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
       inputRef.current.focus();
     }
   }, [isOpen]);
+
+  // Auto-fire initialMessage (e.g. from an incident "Investigate" button)
+  useEffect(() => {
+    if (isOpen && initialMessage && !firedInitial.current) {
+      firedInitial.current = true;
+      // Reset messages to welcome, then send the incident prompt
+      setMessages([{ role: 'assistant', content: WELCOME_MESSAGE, timestamp: new Date() }]);
+      sendMessage(initialMessage);
+    }
+    if (!isOpen) {
+      firedInitial.current = false;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialMessage]);
 
   const sendMessage = async (messageText: string) => {
     if (!messageText.trim() || isLoading) return;
@@ -153,10 +167,9 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="bg-white dark:bg-gray-800 w-full h-full flex flex-col">
+    <div className="fixed top-0 right-0 h-screen w-[420px] z-50 flex flex-col bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-white/[0.08] shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-white/[0.08]">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl">
               <Sparkles className="w-6 h-6 text-white" />
@@ -204,7 +217,7 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.map((message, index) => (
             <div
               key={index}
@@ -265,7 +278,7 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
 
         {/* Quick-action suggestion chips */}
         {messages.length === 1 && (
-          <div className="px-6 pb-4">
+          <div className="px-4 pb-3">
             <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">
               Quick actions
             </p>
@@ -285,8 +298,8 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
         )}
 
         {/* Input */}
-        <div className="p-6 border-t border-gray-200 dark:border-gray-700">
-          <form onSubmit={handleSubmit} className="flex gap-3">
+        <div className="p-4 border-t border-gray-200 dark:border-white/[0.08]">
+          <form onSubmit={handleSubmit} className="flex gap-2">
             <input
               ref={inputRef}
               type="text"
@@ -294,19 +307,18 @@ export default function AIChat({ isOpen, onClose }: AIChatProps) {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask me anything about your OpenShift cluster..."
               disabled={isLoading}
-              className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-700 border-0 rounded-xl text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              className="flex-1 px-3 py-2.5 bg-gray-100 dark:bg-white/[0.06] border-0 rounded-xl text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             />
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
-              className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4" />
               Send
             </button>
           </form>
         </div>
-      </div>
     </div>
   );
 }
