@@ -10,6 +10,7 @@ export default function Header() {
 
   // Token status
   const [tokenExpired, setTokenExpired] = useState(false);
+  const [inCluster, setInCluster] = useState(false);
   const [showTokenModal, setShowTokenModal] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
   const [tokenVisible, setTokenVisible] = useState(false);
@@ -28,6 +29,7 @@ export default function Header() {
       if (!res.ok) return;
       const data = await res.json();
       setTokenExpired(data.status === 'expired');
+      setInCluster(Boolean(data.in_cluster));
     } catch { /* backend not reachable — ignore */ }
   }, []);
 
@@ -116,8 +118,8 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Token refresh button (always accessible) */}
-          <button
+          {/* Token refresh button (hidden when the backend authenticates via the pod's service account) */}
+          {!inCluster && <button
             onClick={openTokenModal}
             title="Update OpenShift token"
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -130,7 +132,7 @@ export default function Header() {
           >
             <KeyRound size={13} />
             {tokenExpired ? 'Refresh Token' : 'Token'}
-          </button>
+          </button>}
 
           <button
             onClick={handleRefresh}

@@ -1,3 +1,4 @@
+import os
 import httpx
 import subprocess
 import json
@@ -30,13 +31,44 @@ class OpenShiftClient:
         "oc scale statefulset {name} --replicas={replicas} -n {namespace}",
     ]
     
+    # Service-account credentials that OpenShift mounts into every pod
+    SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    IN_CLUSTER_API_URL = "https://kubernetes.default.svc"
+    DEFAULT_API_URL = "https://api.rm3.7wse.p1.openshiftapps.com:6443"
+
     def __init__(self):
-        self.api_url = settings.openshift_api_url
-        self.token = settings.openshift_token
+        # Explicit token (env var or pasted in the UI) takes priority over the in-cluster one
+        self._token_override = settings.openshift_token
+        self.api_url = settings.openshift_api_url or (
+            self.IN_CLUSTER_API_URL if self.in_cluster else self.DEFAULT_API_URL
+        )
         self.max_retries = settings.max_retries
         self.retry_delay = settings.retry_delay
         self.timeout = settings.request_timeout
-        self.headers = {
+
+    @property
+    def in_cluster(self) -> bool:
+        """True when running inside a pod and no explicit token has been provided."""
+        return not self._token_override and os.path.isfile(self.SA_TOKEN_PATH)
+
+    @property
+    def token(self) -> str:
+        if self._token_override:
+            return self._token_override
+        # Re-read on every access: OpenShift rotates service-account tokens
+        try:
+            with open(self.SA_TOKEN_PATH) as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+
+    @token.setter
+    def token(self, value: str):
+        self._token_override = value
+
+    @property
+    def headers(self) -> Dict[str, str]:
+        return {
             "Authorization": f"Bearer {self.token}",
             "Accept": "application/json"
         }

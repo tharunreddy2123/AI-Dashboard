@@ -598,13 +598,14 @@ async def get_suggestions():
 @app.get("/api/openshift/token-status")
 async def token_status():
     """Check if the OpenShift token is valid."""
+    in_cluster = openshift_client.in_cluster
     probe = await openshift_client._api_request("/apis/project.openshift.io/v1/projects")
     if "401" in str(probe.get("error", "")):
-        return {"status": "expired", "message": "Token is expired — update OPENSHIFT_TOKEN in backend/.env and restart"}
+        return {"status": "expired", "in_cluster": in_cluster, "message": "Token is expired — update OPENSHIFT_TOKEN in backend/.env and restart"}
     if "error" in probe:
-        return {"status": "error", "message": probe["error"]}
+        return {"status": "error", "in_cluster": in_cluster, "message": probe["error"]}
     count = len(probe.get("items", []))
-    return {"status": "valid", "accessible_projects": count}
+    return {"status": "valid", "in_cluster": in_cluster, "accessible_projects": count}
 
 class TokenUpdateRequest(BaseModel):
     token: str
@@ -616,7 +617,6 @@ async def update_token(request: TokenUpdateRequest):
     if not new_token.startswith("sha256~"):
         raise HTTPException(status_code=400, detail="Token must start with sha256~")
     openshift_client.token = new_token
-    openshift_client.headers["Authorization"] = f"Bearer {new_token}"
     # Verify it works
     probe = await openshift_client._api_request("/apis/project.openshift.io/v1/projects")
     if "401" in str(probe.get("error", "")):

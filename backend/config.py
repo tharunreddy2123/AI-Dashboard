@@ -5,7 +5,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
 
     # OpenShift Configuration
-    openshift_api_url: str = "https://api.rm3.7wse.p1.openshiftapps.com:6443"
+    # Leave both empty when deployed inside OpenShift: the pod's service account is used automatically.
+    openshift_api_url: str = ""
     openshift_token: str = ""
 
     # IBM watsonx.ai Configuration
