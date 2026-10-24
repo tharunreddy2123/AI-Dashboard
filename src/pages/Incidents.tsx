@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useTheme } from '../context/ThemeContext';
 import {
   AlertTriangle, CheckCircle, Clock, RefreshCw, Search,
-  Filter, Sparkles, ExternalLink, ChevronDown, ChevronUp,
+  Filter, Sparkles, ChevronDown, ChevronUp,
   Flame, Info,
 } from 'lucide-react';
 import { BACKEND_URL } from '../lib/api-client';
@@ -26,7 +26,7 @@ export interface Incident {
   opened_at: string;
   updated_at: string;
   resolved_at?: string;
-  source: 'ServiceNow' | 'Mock';
+  source: 'Cluster' | 'ServiceNow';
 }
 
 interface IncidentsProps {
@@ -50,7 +50,7 @@ const STATE_CONFIG: Record<string, { color: string; icon: typeof CheckCircle }> 
 
 function buildRcaPrompt(inc: Incident): string {
   const parts = [
-    `I have a ServiceNow incident that needs Root Cause Analysis (RCA) and remediation steps.`,
+    `I have a cluster incident from the last 24 hours that needs Root Cause Analysis (RCA) and remediation steps.`,
     ``,
     `**Incident**: ${inc.number} — ${inc.short_description}`,
     `**Severity**: ${SEVERITY_CONFIG[inc.severity].label} (P${inc.severity})`,
@@ -93,9 +93,9 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setIncidents(data.incidents ?? []);
-    } catch {
-      // Backend not yet running — use rich mock data
-      setIncidents(MOCK_INCIDENTS);
+    } catch (e) {
+      setIncidents([]);
+      setError(e instanceof Error ? e.message : 'Request failed');
     } finally {
       setLoading(false);
     }
@@ -136,10 +136,10 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-            ServiceNow Incidents
+            Cluster Incidents
           </h1>
           <p className={`text-sm mt-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>
-            {incidents.length} active incidents · AI-powered RCA available
+            {incidents.length} incidents in the last 24 hours · AI-powered RCA available
           </p>
         </div>
         <button
@@ -152,7 +152,7 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
 
       {error && (
         <div className={`rounded-xl p-4 border text-sm ${isDark ? 'bg-yellow-500/5 border-yellow-500/20 text-yellow-300' : 'bg-yellow-50 border-yellow-200 text-yellow-700'}`}>
-          ⚠️ Could not reach backend — showing mock incidents. Start the backend with <code className="font-mono">.\start-backend.ps1</code>
+          ⚠️ Could not load incidents from the backend ({error}).
         </div>
       )}
 
@@ -248,9 +248,6 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
                     <span className={`text-xs font-mono font-semibold ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>{inc.number}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${sev.bg} ${sev.color}`}>{sev.label}</span>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium border ${state.color}`}>{inc.state}</span>
-                    {inc.source === 'Mock' && (
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isDark ? 'bg-white/[0.04] text-gray-500' : 'bg-gray-100 text-gray-400'}`}>MOCK</span>
-                    )}
                   </div>
                   <p className={`text-sm font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>{inc.short_description}</p>
                   <div className="flex items-center gap-4 mt-1.5 text-[11px] flex-wrap">
@@ -290,7 +287,7 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
                     </div>
                     <div className="space-y-2">
                       <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>Details</p>
-                      {[
+                      {([
                         ['Category',    `${inc.category} / ${inc.subcategory}`],
                         ['Priority',    inc.priority],
                         inc.pod_name  ? ['Pod',   inc.pod_name]  : null,
@@ -298,7 +295,7 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
                         ['Opened',      new Date(inc.opened_at).toLocaleString()],
                         ['Updated',     new Date(inc.updated_at).toLocaleString()],
                         inc.resolved_at ? ['Resolved', new Date(inc.resolved_at).toLocaleString()] : null,
-                      ].filter(Boolean).map(([k, v], j) => (
+                      ].filter(Boolean) as [string, string][]).map(([k, v], j) => (
                         <div key={j} className="flex items-center gap-2 text-xs">
                           <span className={`w-20 flex-shrink-0 ${isDark ? 'text-gray-500' : 'text-gray-400'}`}>{k}</span>
                           <span className={`font-mono ${isDark ? 'text-gray-300' : 'text-gray-600'}`}>{v}</span>
@@ -314,10 +311,6 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
                       <Sparkles size={14} />
                       Investigate with AI — get RCA &amp; remediation
                     </button>
-                    <button className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors ${isDark ? 'bg-white/[0.04] text-gray-300 hover:bg-white/[0.08]' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                      <ExternalLink size={14} />
-                      Open in ServiceNow
-                    </button>
                   </div>
                 </div>
               )}
@@ -328,62 +321,12 @@ export default function Incidents({ onOpenChat }: IncidentsProps) {
         {filtered.length === 0 && (
           <div className={`rounded-xl p-12 border text-center ${isDark ? 'bg-[#0d1220] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
             <CheckCircle size={32} className="mx-auto mb-3 text-emerald-400" />
-            <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>No incidents match your filters</p>
+            <p className={isDark ? 'text-gray-400' : 'text-gray-500'}>
+              {incidents.length === 0 ? 'No incidents in the last 24 hours' : 'No incidents match your filters'}
+            </p>
           </div>
         )}
       </div>
     </div>
   );
 }
-
-// ─── Mock incidents (used when backend is offline) ────────────────────────────
-const MOCK_INCIDENTS: Incident[] = [
-  {
-    id: '1', number: 'INC0001234', short_description: 'Pod CrashLoopBackOff in production namespace',
-    description: 'Multiple pods in the production namespace are entering CrashLoopBackOff state. Application logs show OOMKilled errors. The issue started approximately 2 hours ago after a deployment update.',
-    severity: '1', priority: 'Critical', state: 'In Progress',
-    category: 'Infrastructure', subcategory: 'Kubernetes',
-    affected_service: 'payment-service', namespace: 'production', pod_name: 'payment-service-7d9f8b-xkp2m',
-    assigned_to: 'Platform Team', opened_at: new Date(Date.now() - 7200000).toISOString(), updated_at: new Date(Date.now() - 1800000).toISOString(), source: 'Mock',
-  },
-  {
-    id: '2', number: 'INC0001235', short_description: 'Node NotReady — worker-node-03 unresponsive',
-    description: 'worker-node-03 has been in NotReady state for 15 minutes. All pods scheduled on this node are being evicted. Root cause unknown — kubelet may have crashed or network is partitioned.',
-    severity: '1', priority: 'Critical', state: 'New',
-    category: 'Infrastructure', subcategory: 'Node',
-    affected_service: 'cluster-infrastructure', node_name: 'worker-node-03',
-    assigned_to: 'SRE Team', opened_at: new Date(Date.now() - 900000).toISOString(), updated_at: new Date(Date.now() - 600000).toISOString(), source: 'Mock',
-  },
-  {
-    id: '3', number: 'INC0001236', short_description: 'Deployment rollout stuck — auth-service 0/3 ready',
-    description: 'The auth-service deployment has been stuck for 30 minutes with 0/3 replicas ready. Image pull errors are observed. The new container image v2.4.1 may have an issue or the registry credentials have expired.',
-    severity: '2', priority: 'High', state: 'In Progress',
-    category: 'Deployment', subcategory: 'Image Pull',
-    affected_service: 'auth-service', namespace: 'tharunreddy-dev', pod_name: 'auth-service-6f4b9c-lmn45',
-    assigned_to: 'Dev Team', opened_at: new Date(Date.now() - 3600000).toISOString(), updated_at: new Date(Date.now() - 900000).toISOString(), source: 'Mock',
-  },
-  {
-    id: '4', number: 'INC0001237', short_description: 'High memory usage on namespace tharunreddy-dev',
-    description: 'Memory utilisation in tharunreddy-dev has exceeded 90% of allocated quota. Several pods are being OOMKilled. Resource limits may need to be increased or a memory leak needs to be investigated.',
-    severity: '2', priority: 'High', state: 'New',
-    category: 'Performance', subcategory: 'Memory',
-    affected_service: 'multiple', namespace: 'tharunreddy-dev',
-    assigned_to: 'Platform Team', opened_at: new Date(Date.now() - 5400000).toISOString(), updated_at: new Date(Date.now() - 1200000).toISOString(), source: 'Mock',
-  },
-  {
-    id: '5', number: 'INC0001238', short_description: 'PVC mount failure — database pod pending',
-    description: 'The database pod cannot start because the Persistent Volume Claim is stuck in Pending state. StorageClass provisioner may have an issue or there is insufficient storage capacity on the cluster.',
-    severity: '3', priority: 'Medium', state: 'On Hold',
-    category: 'Storage', subcategory: 'PVC',
-    affected_service: 'postgres-db', namespace: 'tharunreddy-dev',
-    assigned_to: 'Storage Team', opened_at: new Date(Date.now() - 14400000).toISOString(), updated_at: new Date(Date.now() - 3600000).toISOString(), source: 'Mock',
-  },
-  {
-    id: '6', number: 'INC0001233', short_description: 'CPU throttling on api-gateway — latency spike',
-    description: 'The api-gateway service is experiencing severe CPU throttling, causing P99 latency to spike above 5 seconds. CPU limits may be too restrictive or there is an unexpected traffic surge.',
-    severity: '2', priority: 'High', state: 'Resolved',
-    category: 'Performance', subcategory: 'CPU',
-    affected_service: 'api-gateway', namespace: 'production',
-    assigned_to: 'SRE Team', opened_at: new Date(Date.now() - 86400000).toISOString(), updated_at: new Date(Date.now() - 43200000).toISOString(), resolved_at: new Date(Date.now() - 43200000).toISOString(), source: 'Mock',
-  },
-];

@@ -660,93 +660,121 @@ class IncidentModel(BaseModel):
     resolved_at: Optional[str] = None
     source: str = "Mock"
 
+
 import datetime as _dt
+import hashlib as _hashlib
 
-def _iso(delta_seconds: int) -> str:
-    return (_dt.datetime.utcnow() - _dt.timedelta(seconds=delta_seconds)).isoformat() + "Z"
+INCIDENT_WINDOW_HOURS = 24
+_ACTIVE_WINDOW_SECONDS = 3600  # seen again within the last hour => still active
 
-_MOCK_INCIDENTS: List[Dict[str, Any]] = [
-    {
-        "id": "1", "number": "INC0001234",
-        "short_description": "Pod CrashLoopBackOff in production namespace",
-        "description": "Multiple pods in the production namespace are entering CrashLoopBackOff state. Application logs show OOMKilled errors. The issue started approximately 2 hours ago after a deployment update.",
-        "severity": "1", "priority": "Critical", "state": "In Progress",
-        "category": "Infrastructure", "subcategory": "Kubernetes",
-        "affected_service": "payment-service", "namespace": "production",
-        "pod_name": "payment-service-7d9f8b-xkp2m", "node_name": None,
-        "assigned_to": "Platform Team",
-        "opened_at": _iso(7200), "updated_at": _iso(1800), "resolved_at": None, "source": "Mock",
-    },
-    {
-        "id": "2", "number": "INC0001235",
-        "short_description": "Node NotReady — worker-node-03 unresponsive",
-        "description": "worker-node-03 has been in NotReady state for 15 minutes. All pods scheduled on this node are being evicted. Root cause unknown — kubelet may have crashed or network is partitioned.",
-        "severity": "1", "priority": "Critical", "state": "New",
-        "category": "Infrastructure", "subcategory": "Node",
-        "affected_service": "cluster-infrastructure", "namespace": None,
-        "pod_name": None, "node_name": "worker-node-03",
-        "assigned_to": "SRE Team",
-        "opened_at": _iso(900), "updated_at": _iso(600), "resolved_at": None, "source": "Mock",
-    },
-    {
-        "id": "3", "number": "INC0001236",
-        "short_description": "Deployment rollout stuck — auth-service 0/3 ready",
-        "description": "The auth-service deployment has been stuck for 30 minutes with 0/3 replicas ready. Image pull errors are observed. The new container image v2.4.1 may have an issue or the registry credentials have expired.",
-        "severity": "2", "priority": "High", "state": "In Progress",
-        "category": "Deployment", "subcategory": "Image Pull",
-        "affected_service": "auth-service", "namespace": "tharunreddy-dev",
-        "pod_name": "auth-service-6f4b9c-lmn45", "node_name": None,
-        "assigned_to": "Dev Team",
-        "opened_at": _iso(3600), "updated_at": _iso(900), "resolved_at": None, "source": "Mock",
-    },
-    {
-        "id": "4", "number": "INC0001237",
-        "short_description": "High memory usage on namespace tharunreddy-dev",
-        "description": "Memory utilisation in tharunreddy-dev has exceeded 90% of allocated quota. Several pods are being OOMKilled. Resource limits may need to be increased or a memory leak needs to be investigated.",
-        "severity": "2", "priority": "High", "state": "New",
-        "category": "Performance", "subcategory": "Memory",
-        "affected_service": "multiple", "namespace": "tharunreddy-dev",
-        "pod_name": None, "node_name": None,
-        "assigned_to": "Platform Team",
-        "opened_at": _iso(5400), "updated_at": _iso(1200), "resolved_at": None, "source": "Mock",
-    },
-    {
-        "id": "5", "number": "INC0001238",
-        "short_description": "PVC mount failure — database pod pending",
-        "description": "The database pod cannot start because the Persistent Volume Claim is stuck in Pending state. StorageClass provisioner may have an issue or there is insufficient storage capacity.",
-        "severity": "3", "priority": "Medium", "state": "On Hold",
-        "category": "Storage", "subcategory": "PVC",
-        "affected_service": "postgres-db", "namespace": "tharunreddy-dev",
-        "pod_name": None, "node_name": None,
-        "assigned_to": "Storage Team",
-        "opened_at": _iso(14400), "updated_at": _iso(3600), "resolved_at": None, "source": "Mock",
-    },
-    {
-        "id": "6", "number": "INC0001233",
-        "short_description": "CPU throttling on api-gateway — latency spike",
-        "description": "The api-gateway service is experiencing severe CPU throttling, causing P99 latency to spike above 5 seconds. CPU limits may be too restrictive or there is an unexpected traffic surge.",
-        "severity": "2", "priority": "High", "state": "Resolved",
-        "category": "Performance", "subcategory": "CPU",
-        "affected_service": "api-gateway", "namespace": "production",
-        "pod_name": None, "node_name": None,
-        "assigned_to": "SRE Team",
-        "opened_at": _iso(86400), "updated_at": _iso(43200), "resolved_at": _iso(43200), "source": "Mock",
-    },
-]
+# event reason -> (severity, category, subcategory)
+_REASON_MAP: Dict[str, Tuple[str, str, str]] = {
+    "BackOff":           ("2", "Application", "CrashLoopBackOff"),
+    "CrashLoopBackOff":  ("1", "Application", "CrashLoopBackOff"),
+    "OOMKilled":         ("1", "Performance", "Memory"),
+    "Evicted":           ("2", "Infrastructure", "Eviction"),
+    "NodeNotReady":      ("1", "Infrastructure", "Node"),
+    "NodeHasDiskPressure":   ("2", "Infrastructure", "Node"),
+    "NodeHasInsufficientMemory": ("2", "Infrastructure", "Node"),
+    "Failed":            ("2", "Deployment", "Container Failure"),
+    "FailedScheduling":  ("2", "Infrastructure", "Scheduling"),
+    "FailedMount":       ("3", "Storage", "Volume Mount"),
+    "FailedAttachVolume": ("3", "Storage", "Volume Attach"),
+    "ErrImagePull":      ("2", "Deployment", "Image Pull"),
+    "ImagePullBackOff":  ("2", "Deployment", "Image Pull"),
+    "InspectFailed":     ("3", "Deployment", "Image Pull"),
+    "Unhealthy":         ("3", "Application", "Probe Failure"),
+    "FailedCreate":      ("3", "Deployment", "Controller"),
+    "FailedGetResourceMetric": ("4", "Performance", "Autoscaling"),
+}
+_SEVERITY_PRIORITY = {"1": "Critical", "2": "High", "3": "Medium", "4": "Low"}
+
+
+def _parse_ts(value: Optional[str]) -> Optional[_dt.datetime]:
+    if not value:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _event_time(ev: Dict[str, Any]) -> Optional[_dt.datetime]:
+    series = ev.get("series") or {}
+    return (_parse_ts(ev.get("lastTimestamp")) or _parse_ts(series.get("lastObservedTime"))
+            or _parse_ts(ev.get("eventTime")) or _parse_ts(ev.get("metadata", {}).get("creationTimestamp")))
+
+
+async def _build_cluster_incidents() -> List[Dict[str, Any]]:
+    """
+    Derive incidents from the live cluster: Warning events from the last 24 hours,
+    grouped per (namespace, object, reason).
+    """
+    now = _dt.datetime.now(_dt.timezone.utc)
+    cutoff = now - _dt.timedelta(hours=INCIDENT_WINDOW_HOURS)
+    events = await openshift_client.get_events()
+
+    groups: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+    for ev in events:
+        if ev.get("type") != "Warning":
+            continue
+        last = _event_time(ev)
+        if not last or last < cutoff:
+            continue
+        obj = ev.get("involvedObject", {})
+        reason = ev.get("reason", "Unknown")
+        key = (obj.get("namespace") or ev.get("metadata", {}).get("namespace", ""),
+               obj.get("kind", ""), obj.get("name", ""), reason)
+        first = _parse_ts(ev.get("firstTimestamp")) or _parse_ts(ev.get("eventTime")) or last
+        count = ev.get("count") or (ev.get("series") or {}).get("count") or 1
+        g = groups.get(key)
+        if g is None:
+            groups[key] = {"first": first, "last": last, "count": count, "message": ev.get("message", ""),
+                           "obj": obj, "reason": reason}
+        else:
+            g["first"] = min(g["first"], first)
+            if last > g["last"]:
+                g["last"], g["message"] = last, ev.get("message", "")
+            g["count"] += count
+
+    incidents: List[Dict[str, Any]] = []
+    for (ns, kind, name, reason), g in groups.items():
+        severity, category, subcategory = _REASON_MAP.get(reason, ("3", "Cluster Event", reason))
+        age = (now - g["last"]).total_seconds()
+        active = age <= _ACTIVE_WINDOW_SECONDS
+        uid = _hashlib.sha1(f"{ns}/{kind}/{name}/{reason}".encode()).hexdigest()[:10]
+        pod = name if kind == "Pod" else None
+        incidents.append({
+            "id": uid,
+            "number": f"EVT-{uid[:7].upper()}",
+            "short_description": f"{reason} on {kind}/{name}" + (f" in {ns}" if ns else ""),
+            "description": f"{g['message']} (seen {g['count']} time(s) in the last {INCIDENT_WINDOW_HOURS}h)",
+            "severity": severity, "priority": _SEVERITY_PRIORITY[severity],
+            "state": "New" if active else "Resolved",
+            "category": category, "subcategory": subcategory,
+            "affected_service": name, "namespace": ns or None,
+            "pod_name": pod, "node_name": name if kind == "Node" else None,
+            "assigned_to": "Unassigned",
+            "opened_at": g["first"].isoformat(), "updated_at": g["last"].isoformat(),
+            "resolved_at": None if active else g["last"].isoformat(),
+            "source": "Cluster",
+        })
+    # newest first, then active before resolved, then most severe first (stable sorts)
+    incidents.sort(key=lambda i: i["updated_at"], reverse=True)
+    incidents.sort(key=lambda i: (i["state"] != "New", i["severity"]))
+    return incidents
+
 
 @app.get("/api/incidents")
 async def get_incidents(state: Optional[str] = None, severity: Optional[str] = None):
-    """
-    Return incidents list.
-    In production, replace _MOCK_INCIDENTS with a real ServiceNow REST API call:
-      GET https://<instance>.service-now.com/api/now/table/incident
-    """
-    incidents = list(_MOCK_INCIDENTS)
+    """Incidents from the last 24 hours, derived from live cluster Warning events."""
+    incidents = await _build_cluster_incidents()
     if state:
         incidents = [i for i in incidents if i["state"].lower() == state.lower()]
     if severity:
         incidents = [i for i in incidents if i["severity"] == severity]
-    return {"incidents": incidents, "total": len(incidents), "source": "mock"}
+    return {"incidents": incidents, "total": len(incidents), "window_hours": INCIDENT_WINDOW_HOURS,
+            "source": "cluster"}
 
 @app.post("/api/incidents/{incident_id}/analyze")
 async def analyze_incident(incident_id: str):
@@ -755,7 +783,7 @@ async def analyze_incident(incident_id: str):
     Fetches live cluster context for the affected namespace/pod and returns
     a structured RCA + remediation from the AI.
     """
-    incident = next((i for i in _MOCK_INCIDENTS if i["id"] == incident_id), None)
+    incident = next((i for i in await _build_cluster_incidents() if i["id"] == incident_id), None)
     if not incident:
         raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
 
