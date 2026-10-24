@@ -7,9 +7,11 @@ const getBackendUrl = (): string => {
     return envUrl.replace(/\/$/, "");
   }
 
-  // Production on Netlify: proxy through the Netlify Function to avoid CORS
+  // Production default: same origin. The web server (nginx on OpenShift, see
+  // nginx.conf.template) forwards /api and /health to the backend service.
+  // Netlify sets VITE_BACKEND_API_URL=/.netlify/functions/api in netlify.toml.
   if (import.meta.env.PROD) {
-    return '/.netlify/functions/api';
+    return '';
   }
 
   // Local development default

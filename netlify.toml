@@ -5,6 +5,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  VITE_BACKEND_API_URL = "/.netlify/functions/api"
 
 # ── Dev server (netlify dev) ─────────────────────────────────────────────────
 [dev]

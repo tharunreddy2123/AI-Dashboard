@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     # Leave both empty when deployed inside OpenShift: the pod's service account is used automatically.
     openshift_api_url: str = ""
     openshift_token: str = ""
+    # Comma-separated namespaces to show when the service account can't list projects
+    # (e.g. WATCH_NAMESPACES=tharunreddy-dev,tharunreddy-stage)
+    watch_namespaces: str = ""
 
     # IBM watsonx.ai Configuration
     watsonx_api_key: str = ""
@@ -36,6 +39,10 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 2
     request_timeout: int = 30
+
+    @property
+    def watch_namespaces_list(self) -> List[str]:
+        return [n.strip() for n in self.watch_namespaces.split(",") if n.strip()]
 
     @property
     def cors_origins_list(self) -> List[str]:

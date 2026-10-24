@@ -33,6 +33,7 @@ class OpenShiftClient:
     
     # Service-account credentials that OpenShift mounts into every pod
     SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    SA_NAMESPACE_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
     IN_CLUSTER_API_URL = "https://kubernetes.default.svc"
     DEFAULT_API_URL = "https://api.rm3.7wse.p1.openshiftapps.com:6443"
 
@@ -127,7 +128,21 @@ class OpenShiftClient:
     async def get_namespaces(self) -> List[Dict[str, Any]]:
         """Get accessible projects/namespaces for this user"""
         data = await self._api_request("/apis/project.openshift.io/v1/projects")
-        return data.get("items", [])
+        items = data.get("items", [])
+        if not items and settings.watch_namespaces_list:
+            # Explicit list for service accounts that can't list projects
+            return [{"metadata": {"name": n}, "status": {"phase": "Active"}}
+                    for n in settings.watch_namespaces_list]
+        if not items and self.in_cluster:
+            # Service account can't list projects: fall back to the namespace the pod runs in
+            try:
+                with open(self.SA_NAMESPACE_PATH) as f:
+                    own_ns = f.read().strip()
+                if own_ns:
+                    return [{"metadata": {"name": own_ns}, "status": {"phase": "Active"}}]
+            except OSError:
+                pass
+        return items
 
     async def get_pods(self, namespace: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get pods - queries per accessible namespace (no cluster-wide list permission needed)"""

@@ -41,6 +41,11 @@ class WatsonXClient:
 
     async def _get_iam_token(self) -> str:
         """Exchange the API key for a short-lived IAM bearer token."""
+        if not self.api_key:
+            raise RuntimeError(
+                "WATSONX_API_KEY is not set. Add it as an environment variable "
+                "(Secret) on the OpenShift deployment and restart the pod."
+            )
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(
                 _IAM_URL,
@@ -50,7 +55,11 @@ class WatsonXClient:
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                raise RuntimeError(
+                    f"IBM Cloud IAM rejected the API key (HTTP {response.status_code}): "
+                    f"{response.text[:300]}"
+                )
             self._iam_token = response.json()["access_token"]
             return self._iam_token
 
